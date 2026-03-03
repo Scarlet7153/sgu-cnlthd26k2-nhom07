@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Cpu, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
-  document.title = "Đăng nhập - TechPC";
+  document.title = "Đăng nhập - PCShop";
   const navigate = useNavigate();
   const { toast } = useToast();
   const { signIn } = useAuth();
@@ -36,7 +36,7 @@ export default function LoginPage() {
         <div className="text-center">
           <Link to="/" className="inline-flex items-center gap-2 text-2xl font-bold">
             <Cpu className="h-8 w-8 text-primary" />
-            <span className="text-gradient-primary">TechPC</span>
+            <span className="text-gradient-primary">PCShop</span>
           </Link>
           <h1 className="mt-6 text-2xl font-bold text-foreground">Đăng nhập</h1>
           <p className="mt-2 text-sm text-muted-foreground">Chào mừng bạn trở lại</p>
