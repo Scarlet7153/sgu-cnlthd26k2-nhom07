@@ -7,7 +7,6 @@ Cửa hàng linh kiện máy tính trực tuyến: CPU, Mainboard, VGA, RAM, SSD
 - **Vite** + **React 18** + **TypeScript**
 - **Tailwind CSS** + **shadcn/ui**
 - **React Router v6**
-- **Supabase** (backend)
 
 ## Cài đặt & Chạy
 

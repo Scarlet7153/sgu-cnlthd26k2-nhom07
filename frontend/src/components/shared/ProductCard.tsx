@@ -34,7 +34,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   return (
     <Link
       to={`/product/${product.id}`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
+      className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
     >
       {/* Image */}
       <div className="relative aspect-[4/3] bg-muted/30 p-3">
@@ -47,7 +47,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           {product.category === "psu" && "⚡"}
           {product.category === "case" && "🖥"}
           {product.category === "cooler" && "❄️"}
-          {!["cpu","vga","mainboard","ram","ssd","psu","case","cooler"].includes(product.category) && "📦"}
+          {!["cpu", "vga", "mainboard", "ram", "ssd", "psu", "case", "cooler"].includes(product.category) && "📦"}
         </div>
         <div className="absolute left-2 top-2 flex flex-col gap-1">
           {product.featured && (
@@ -64,10 +64,10 @@ export default function ProductCard({ product }: ProductCardProps) {
       {/* Info */}
       <div className="flex flex-1 flex-col gap-1 p-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">{product.brand}</p>
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-card-foreground group-hover:text-primary transition-colors">
+        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug text-card-foreground group-hover:text-primary transition-colors">
           {product.name}
         </h3>
-        <p className="line-clamp-1 text-xs text-muted-foreground">{getShortSpecs(product)}</p>
+        <p className="line-clamp-1 min-h-[1rem] text-xs text-muted-foreground">{getShortSpecs(product)}</p>
 
         {/* Rating */}
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
