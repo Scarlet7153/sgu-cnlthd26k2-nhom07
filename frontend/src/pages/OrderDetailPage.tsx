@@ -113,8 +113,16 @@ export default function OrderDetailPage() {
             <div className="space-y-4">
               {order.items.map(({ product, quantity }) => (
                 <div key={product.id} className="flex items-center gap-4 rounded-lg border border-border p-3">
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-2xl">
-                    {product.category === "cpu" ? "🔲" : product.category === "vga" ? "🎮" : product.category === "ram" ? "💾" : product.category === "mainboard" ? "📟" : product.category === "ssd" || product.category === "hdd" ? "💿" : product.category === "psu" ? "⚡" : product.category === "case" ? "🖥️" : product.category === "cooler" ? "❄️" : "📦"}
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+                    <img
+                      src={product.images?.[0]}
+                      alt={product.name}
+                      className="h-full w-full object-contain"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.src = "https://placehold.co/128x128/png?text=No+Image";
+                      }}
+                    />
                   </div>
                   <div className="flex-1">
                     <Link to={`/product/${product.id}`} className="text-sm font-medium text-foreground hover:text-primary">

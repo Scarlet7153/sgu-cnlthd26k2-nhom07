@@ -1,4 +1,5 @@
 import { useState } from "react";
+import logo from "@/assets/logo.png";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -34,9 +35,8 @@ export default function LoginPage() {
     <div className="flex min-h-[80vh] items-center justify-center px-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <Link to="/" className="inline-flex items-center gap-2 text-2xl font-bold">
-            <Cpu className="h-8 w-8 text-primary" />
-            <span className="text-gradient-primary">PCShop</span>
+          <Link to="/" className="inline-flex items-center gap-2 text-xl font-bold">
+            <img src={logo} alt="PCShop Logo" className={`w-auto object-contain transition-all duration-300`} />
           </Link>
           <h1 className="mt-6 text-2xl font-bold text-foreground">Đăng nhập</h1>
           <p className="mt-2 text-sm text-muted-foreground">Chào mừng bạn trở lại</p>

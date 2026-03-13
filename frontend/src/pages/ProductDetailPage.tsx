@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ShoppingCart, Star, Truck, Shield, ChevronRight, Package, RotateCcw, Minus, Plus, Check, Share2, Copy, Tag, GitCompareArrows } from "lucide-react";
-import { products } from "@/data/products";
 import { useCart } from "@/hooks/useCart";
 import { formatPrice } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -11,6 +10,8 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/shared/EmptyState";
 import ProductCard from "@/components/shared/ProductCard";
+import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
+import { useProductDetail, useProducts } from "@/hooks/useProducts";
 
 const categoryLabel: Record<string, string> = {
   cpu: "CPU - Bộ vi xử lý",
@@ -39,9 +40,20 @@ export default function ProductDetailPage() {
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toast } = useToast();
-  const product = products.find((p) => p.id === id);
+  
+  const { data: product, isLoading } = useProductDetail(id);
+  const { data: relatedData } = useProducts({ categoryId: product?.category, size: 5 });
+
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <LoadingSkeleton count={1} />
+      </div>
+    );
+  }
 
   if (!product) {
     return (
@@ -93,11 +105,19 @@ export default function ProductDetailPage() {
     }
   };
 
-  const relatedProducts = products
-    .filter((p) => p.category === product.category && p.id !== product.id)
+  const relatedProducts = (relatedData?.content || [])
+    .filter((p) => p.id !== product.id)
     .slice(0, 4);
 
-  const specEntries = Object.entries(product.specs);
+  const specEntries = Object.entries(product.specs || {});
+  const formatSpecValue = (value: unknown): string => {
+    if (value === null || value === undefined) return "—";
+    const raw = String(value).trim();
+    if (!raw) return "—";
+    return raw
+      .replace(/<br\s*\/?\s*>/gi, "\n")
+      .replace(/&lt;br\s*\/?\s*&gt;/gi, "\n");
+  };
   const discount = product.originalPrice
     ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
     : 0;
@@ -131,14 +151,19 @@ export default function ProductDetailPage() {
                 -{discount}%
               </Badge>
             )}
-            <div className="flex h-full items-center justify-center text-9xl text-muted-foreground/20">
-              {categoryEmoji[product.category] || "📦"}
-            </div>
+            <img
+              src={product.images?.[selectedImage] || product.images?.[0]}
+              alt={product.name}
+              className="h-full w-full object-contain p-4"
+              onError={(e) => {
+                e.currentTarget.src = "https://placehold.co/800x800/png?text=No+Image";
+              }}
+            />
           </div>
 
           {/* Thumbnail row (placeholder slots) */}
           <div className="mt-3 grid grid-cols-5 gap-2">
-            {[0, 1, 2, 3, 4].map((i) => (
+            {(product.images && product.images.length > 0 ? product.images : ["https://placehold.co/150x150/png?text=No+Image"]).slice(0, 5).map((img, i) => (
               <button
                 key={i}
                 onClick={() => setSelectedImage(i)}
@@ -148,9 +173,14 @@ export default function ProductDetailPage() {
                     : "border-border hover:border-muted-foreground/50"
                 }`}
               >
-                <div className="flex h-full items-center justify-center text-2xl text-muted-foreground/30">
-                  {categoryEmoji[product.category] || "📦"}
-                </div>
+                <img
+                  src={img}
+                  alt={`${product.name} ${i + 1}`}
+                  className="h-full w-full object-contain p-1"
+                  onError={(e) => {
+                    e.currentTarget.src = "https://placehold.co/150x150/png?text=No+Image";
+                  }}
+                />
               </button>
             ))}
           </div>
@@ -210,7 +240,7 @@ export default function ProductDetailPage() {
               {highlightSpecs.map(([key, value]) => (
                 <div key={key} className="rounded-lg bg-muted/50 px-3 py-2">
                   <p className="text-xs text-muted-foreground">{key}</p>
-                  <p className="text-sm font-medium text-foreground">{value}</p>
+                  <p className="whitespace-pre-line text-sm font-medium text-foreground">{formatSpecValue(value)}</p>
                 </div>
               ))}
             </div>
@@ -360,7 +390,7 @@ export default function ProductDetailPage() {
                 {specEntries.map(([key, value], i) => (
                   <tr key={key} className="border-b border-border last:border-b-0">
                     <td className="w-1/3 bg-muted/40 px-5 py-3.5 text-sm font-medium text-primary">{key}</td>
-                    <td className="px-5 py-3.5 text-sm text-foreground">{value}</td>
+                    <td className="whitespace-pre-line px-5 py-3.5 text-sm text-foreground">{formatSpecValue(value)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -38,17 +38,15 @@ export default function ProductCard({ product }: ProductCardProps) {
     >
       {/* Image */}
       <div className="relative aspect-[4/3] bg-muted/30 p-3">
-        <div className="flex h-full items-center justify-center text-4xl text-muted-foreground/20">
-          {product.category === "cpu" && "🔲"}
-          {product.category === "vga" && "🎮"}
-          {product.category === "mainboard" && "🔌"}
-          {product.category === "ram" && "💾"}
-          {product.category === "ssd" && "💿"}
-          {product.category === "psu" && "⚡"}
-          {product.category === "case" && "🖥"}
-          {product.category === "cooler" && "❄️"}
-          {!["cpu", "vga", "mainboard", "ram", "ssd", "psu", "case", "cooler"].includes(product.category) && "📦"}
-        </div>
+        <img
+          src={product.images?.[0]}
+          alt={product.name}
+          className="h-full w-full object-contain"
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.src = "https://placehold.co/400x300/png?text=No+Image";
+          }}
+        />
         <div className="absolute left-2 top-2 flex flex-col gap-1">
           {product.featured && (
             <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5">Mới</Badge>

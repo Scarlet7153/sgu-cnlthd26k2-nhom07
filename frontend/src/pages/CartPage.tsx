@@ -29,8 +29,16 @@ export default function CartPage() {
         <div className="lg:col-span-2 space-y-4">
           {items.map(({ product, quantity }) => (
             <div key={product.id} className="flex gap-4 rounded-lg border border-border bg-card p-4">
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md bg-muted text-3xl">
-                {product.category === "cpu" ? "🔲" : product.category === "vga" ? "🎮" : "📦"}
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+                <img
+                  src={product.images?.[0]}
+                  alt={product.name}
+                  className="h-full w-full object-contain"
+                  loading="lazy"
+                  onError={(e) => {
+                    e.currentTarget.src = "https://placehold.co/160x160/png?text=No+Image";
+                  }}
+                />
               </div>
               <div className="flex flex-1 flex-col gap-1">
                 <Link to={`/product/${product.id}`} className="text-sm font-semibold text-card-foreground hover:text-primary line-clamp-2">{product.name}</Link>
