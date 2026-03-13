@@ -1,0 +1,12 @@
+target
+.mvn
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+target
+.mvn
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
