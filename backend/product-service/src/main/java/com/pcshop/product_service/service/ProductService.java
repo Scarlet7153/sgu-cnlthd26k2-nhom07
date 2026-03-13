@@ -8,8 +8,17 @@ import com.pcshop.product_service.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -18,6 +27,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final MongoTemplate mongoTemplate;
 
     public Page<Product> getAllProducts(Pageable pageable) {
         return productRepository.findAll(pageable);
@@ -32,8 +42,47 @@ public class ProductService {
         return productRepository.findByCategoryID(categoryID, pageable);
     }
 
-    public Page<Product> searchProducts(String keyword, Pageable pageable) {
-        return productRepository.searchByName(keyword, pageable);
+    public Page<Product> searchProducts(String keyword, String categoryID, Pageable pageable) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        List<String> tokens = Arrays.stream(keyword.trim().split("\\s+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .limit(6)
+                .collect(Collectors.toList());
+
+        if (tokens.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        // Build "contains all tokens" regex per field, e.g. (?i)(?=.*AMD)(?=.*9800x3d).*
+        String lookAheadRegex = tokens.stream()
+            .map(token -> "(?=.*" + Pattern.quote(token) + ")")
+            .collect(Collectors.joining("", "", ".*"));
+
+        Criteria searchCriteria = new Criteria().orOperator(
+            Criteria.where("name").regex(lookAheadRegex, "i"),
+            Criteria.where("model").regex(lookAheadRegex, "i"),
+            Criteria.where("socket").regex(lookAheadRegex, "i")
+        );
+
+        Query query;
+        if (categoryID != null && !categoryID.trim().isEmpty()) {
+            query = new Query(new Criteria().andOperator(
+                Criteria.where("categoryID").is(categoryID.trim()),
+                searchCriteria
+            ));
+        } else {
+            query = new Query(searchCriteria);
+        }
+
+        long total = mongoTemplate.count(query, Product.class);
+        query.with(pageable);
+        List<Product> content = mongoTemplate.find(query, Product.class);
+
+        return new PageImpl<>(content, pageable, total);
     }
 
     public Page<Product> filterByPriceRange(String categoryID, Long minPrice, Long maxPrice, Pageable pageable) {
@@ -107,5 +156,15 @@ public class ProductService {
         }
         productRepository.deleteById(id);
         log.info("Product deleted: {}", id);
+    }
+
+    public List<String> getBrands() {
+        Query query = new Query();
+        List<String> brands = mongoTemplate.findDistinct(query, "specs_raw.Thương hiệu", Product.class, String.class);
+        return brands.stream()
+                .filter(b -> b != null && !b.trim().isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
     }
 }

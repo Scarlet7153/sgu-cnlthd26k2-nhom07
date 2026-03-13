@@ -26,11 +26,17 @@ spring:
             allowCredentials: true
             maxAge: 3600
       routes:
-        # User Service — auth + user management
+        # Auth Service — authentication and JWT
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+
+        # User Service — user management
         - id: user-service
           uri: lb://user-service
           predicates:
-            - Path=/api/auth/**, /api/users/**
+            - Path=/api/users/**
 
         # Product Service — products, categories, reviews
         - id: product-service

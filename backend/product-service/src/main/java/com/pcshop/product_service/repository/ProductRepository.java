@@ -12,16 +12,18 @@ import java.util.List;
 @Repository
 public interface ProductRepository extends MongoRepository<Product, String> {
 
+    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryID': ?0 }")
     Page<Product> findByCategoryID(String categoryID, Pageable pageable);
 
+    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryID': ?0 }")
     List<Product> findByCategoryID(String categoryID);
 
     Page<Product> findBySocket(String socket, Pageable pageable);
 
-    @Query("{ 'name': { $regex: ?0, $options: 'i' } }")
+    @Query(value = "{ 'name': { $regex: ?0, $options: 'i' } }")
     Page<Product> searchByName(String keyword, Pageable pageable);
 
-    @Query("{ 'categoryID': ?0, 'price': { $gte: ?1, $lte: ?2 } }")
+    @Query(value = "{ 'categoryID': ?0, 'price': { $gte: ?1, $lte: ?2 } }")
     Page<Product> findByCategoryAndPriceRange(String categoryID, Long minPrice, Long maxPrice, Pageable pageable);
 
     long countByCategoryID(String categoryID);
