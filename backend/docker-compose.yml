@@ -1,0 +1,149 @@
+services:
+  # =============================================
+  # Infrastructure
+  # =============================================
+  mongodb:
+    image: mongo:7
+    container_name: pcshop-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: pcshop-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-net
+
+  # =============================================
+  # Spring Cloud Infrastructure
+  # =============================================
+  eureka-service:
+    build: ./eureka-service
+    container_name: eureka-service
+    ports:
+      - "8761:8761"
+    environment:
+      - SERVER_PORT=8761
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend-net
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  # =============================================
+  # Business Services
+  # =============================================
+  user-service:
+    build: ./user-service
+    container_name: user-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_PORT=8081
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/user_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  product-service:
+    build: ./product-service
+    container_name: product-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_PORT=8082
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/product_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SERVER_PORT=8083
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/order_db
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+  payment-service:
+    build: ./payment-service
+    container_name: payment-service
+    ports:
+      - "8084:8084"
+    environment:
+      - SERVER_PORT=8084
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/payment_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+# =============================================
+# Volumes & Networks
+# =============================================
+volumes:
+  mongo_data:
+
+networks:
+  backend-net:
+    driver: bridge
