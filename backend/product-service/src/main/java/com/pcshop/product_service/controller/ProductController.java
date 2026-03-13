@@ -4,6 +4,7 @@ import com.pcshop.product_service.dto.request.ProductRequest;
 import com.pcshop.product_service.dto.response.ApiResponse;
 import com.pcshop.product_service.model.Product;
 import com.pcshop.product_service.service.ProductService;
+import com.pcshop.product_service.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 public class ProductController {
 
     private final ProductService productService;
+    private final CategoryService categoryService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<Product>>> getAllProducts(
@@ -33,19 +35,28 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.ok(product));
     }
 
-    @GetMapping("/category/{categoryID}")
+    @GetMapping("/category/{code}")
     public ResponseEntity<ApiResponse<Page<Product>>> getProductsByCategory(
-            @PathVariable String categoryID,
+            @PathVariable String code,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.getProductsByCategory(categoryID, pageable);
+        // Try to resolve category code to its DB id; if resolution fails, treat the path variable as an id
+        String categoryId;
+        try {
+            categoryId = categoryService.getCategoryByCode(code.toUpperCase()).getId();
+        } catch (Exception ex) {
+            categoryId = code;
+        }
+
+        Page<Product> products = productService.getProductsByCategory(categoryId, pageable);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<Page<Product>>> searchProducts(
             @RequestParam String keyword,
+            @RequestParam(required = false) String categoryID,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.searchProducts(keyword, pageable);
+        Page<Product> products = productService.searchProducts(keyword, categoryID, pageable);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
@@ -79,5 +90,11 @@ public class ProductController {
     public ResponseEntity<ApiResponse<Void>> deleteProduct(@PathVariable String id) {
         productService.deleteProduct(id);
         return ResponseEntity.ok(ApiResponse.ok("Product deleted", null));
+    }
+
+    @GetMapping("/brands")
+    public ResponseEntity<ApiResponse<java.util.List<String>>> getBrands() {
+        java.util.List<String> brands = productService.getBrands();
+        return ResponseEntity.ok(ApiResponse.ok(brands));
     }
 }
