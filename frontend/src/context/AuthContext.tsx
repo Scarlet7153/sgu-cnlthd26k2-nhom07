@@ -1,12 +1,31 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 
+import axiosClient, { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClient";
+
 interface User {
   id: string;
   email: string;
   name?: string;
   phone?: string;
-  address?: string;
+  address?: string; // Trong User Model backend là 1 entity lồng nhau, nhưng tạm để string/hoặc object
   avatar?: string;
+  token?: string; // Để lưu jwt
+}
+
+interface BackendAccount {
+  id?: string;
+  _id?: string;
+  email?: string;
+  fullName?: string;
+  name?: string;
+  phone?: string;
+}
+
+interface LoginPayload {
+  accessToken?: string;
+  token?: string;
+  account?: BackendAccount;
+  user?: BackendAccount;
 }
 
 interface AuthContextValue {
@@ -24,81 +43,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Load User từ JS Token Storage lúc F5 
   useEffect(() => {
-    // Seed default test accounts if none exist
-    try {
-      const existing = JSON.parse(localStorage.getItem("auth-users") || "[]");
-      if (existing.length === 0) {
-        const defaultUsers = [
-          { id: "admin-001", email: "admin@techpc.vn", password: "admin123", name: "Admin TechPC" },
-          { id: "user-001", email: "user@techpc.vn", password: "user123", name: "Nguyễn Văn A" },
-        ];
-        localStorage.setItem("auth-users", JSON.stringify(defaultUsers));
-      }
-    } catch {
-      // ignore
-    }
-
-    // Load user from localStorage
     try {
       const stored = localStorage.getItem("auth-user");
       if (stored) {
         setUser(JSON.parse(stored));
       }
     } catch {
-      // ignore
+      localStorage.removeItem("auth-user");
     } finally {
       setLoading(false);
     }
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    // Mock authentication - check localStorage for stored users
     try {
-      const users = JSON.parse(localStorage.getItem("auth-users") || "[]");
-      const found = users.find((u: any) => u.email === email && u.password === password);
-      
-      if (found) {
-        const user = { id: found.id, email: found.email, name: found.name };
-        setUser(user);
-        localStorage.setItem("auth-user", JSON.stringify(user));
-        return {};
+      const raw: any = await axiosClient.post("/auth/login", { email, password });
+      const authData = unwrapApiData<LoginPayload>(raw);
+      const account = authData?.account || authData?.user;
+
+      const loggedUser: User = { 
+        id: account?.id || account?._id || "",
+        email: account?.email || email,
+        name: account?.fullName || account?.name || account?.email,
+        phone: account?.phone,
+        token: authData?.accessToken || authData?.token || ""
+      };
+
+      if (!loggedUser.id || !loggedUser.token) {
+        return { error: "Phản hồi đăng nhập không hợp lệ từ backend" };
       }
-      return { error: "Email hoặc mật khẩu không đúng" };
-    } catch {
-      return { error: "Đã xảy ra lỗi" };
+
+      setUser(loggedUser);
+      localStorage.setItem("auth-user", JSON.stringify(loggedUser));
+
+      return {};
+    } catch (err: unknown) {
+      console.error("Login failed:", err);
+      return { error: getApiErrorMessage(err, "Email hoặc mật khẩu không đúng") };
     }
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, name: string) => {
     try {
-      const users = JSON.parse(localStorage.getItem("auth-users") || "[]");
-      
-      // Check if email already exists
-      if (users.some((u: any) => u.email === email)) {
-        return { error: "Email đã được sử dụng" };
-      }
+      await axiosClient.post("/auth/register", {
+        fullName: name,
+        email: email,
+        password: password
+      });
 
-      const newUser = {
-        id: crypto.randomUUID(),
-        email,
-        password,
-        name,
-      };
-      
-      users.push(newUser);
-      localStorage.setItem("auth-users", JSON.stringify(users));
-      
-      const user = { id: newUser.id, email: newUser.email, name: newUser.name };
-      setUser(user);
-      localStorage.setItem("auth-user", JSON.stringify(user));
-      return {};
-    } catch {
-      return { error: "Đã xảy ra lỗi" };
+      return await signIn(email, password);
+    } catch (err: unknown) {
+      return { error: getApiErrorMessage(err, "Đã xảy ra lỗi đăng ký") };
     }
-  }, []);
+  }, [signIn]);
 
   const signOut = useCallback(async () => {
+    try {
+      await axiosClient.post("/auth/logout");
+    } catch {
+      // Backend có thể chưa có endpoint logout, vẫn cho logout local bình thường.
+    }
+
     setUser(null);
     localStorage.removeItem("auth-user");
   }, []);
@@ -106,16 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateProfile = useCallback((data: Partial<Omit<User, "id" | "email">>) => {
     if (!user) return;
     try {
+      // TODO: Đồng bộ endpoint profile theo backend thực tế.
+      // await axiosClient.put(`/users/${user.id}`, data);
+      
       const updated = { ...user, ...data };
       setUser(updated);
       localStorage.setItem("auth-user", JSON.stringify(updated));
-
-      const stored = JSON.parse(localStorage.getItem("auth-users") || "[]");
-      const idx = stored.findIndex((u: any) => u.id === user.id);
-      if (idx !== -1) {
-        stored[idx] = { ...stored[idx], ...data };
-        localStorage.setItem("auth-users", JSON.stringify(stored));
-      }
     } catch {
       // ignore
     }

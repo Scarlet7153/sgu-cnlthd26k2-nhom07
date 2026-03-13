@@ -17,26 +17,15 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { categories } from "@/data/categories";
-import { products } from "@/data/products";
 import { formatPrice } from "@/lib/format";
+import { useProducts } from "@/hooks/useProducts";
+import { useCategories } from "@/hooks/useCategories";
 
 const navLinks = [
   { label: "Trang chủ", to: "/" },
   { label: "Sản phẩm", to: "/products" },
   { label: "Build PC", to: "/pc-builder" },
   { label: "So sánh", to: "/compare" },
-];
-
-const categoryLinks = [
-  { label: "CPU - Bộ vi xử lý", to: "/products?category=cpu", img: cpuIcon },
-  { label: "Mainboard", to: "/products?category=mainboard", img: mainboardIcon },
-  { label: "Card đồ họa", to: "/products?category=vga", img: gpuIcon },
-  { label: "RAM", to: "/products?category=ram", img: ramIcon },
-  { label: "Ổ cứng SSD", to: "/products?category=ssd", img: ssdIcon },
-  { label: "Nguồn máy tính", to: "/products?category=psu", img: psuIcon },
-  { label: "Vỏ Case", to: "/products?category=case", img: caseIcon },
-  { label: "Tản nhiệt", to: "/products?category=cooler", img: fanIcon },
 ];
 
 const iconImgMap: Record<string, string> = {
@@ -51,6 +40,20 @@ const iconImgMap: Record<string, string> = {
 };
 
 const SCROLL_THRESHOLD = 80;
+
+// Custom debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 export default function Header() {
   const { totalItems } = useCart();
@@ -72,18 +75,26 @@ export default function Header() {
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const searchSuggestions = useMemo(() => {
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) return [];
-    const q = searchQuery.toLowerCase();
-    return products
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          Object.values(p.specs).some((v) => v.toLowerCase().includes(q))
-      )
-      .slice(0, 8);
-  }, [searchQuery]);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const shouldSearch = debouncedSearchQuery.trim().length >= 2;
+  const { data: categoriesData } = useCategories();
+  const menuCategories = categoriesData || [];
+  const categoryLinks = useMemo(
+    () => menuCategories.map((c) => ({
+      label: c.name,
+      to: `/products?category=${c.id}`,
+      img: iconImgMap[c.icon],
+    })),
+    [menuCategories]
+  );
+
+  const { data: searchData, isLoading: isSearchLoading } = useProducts({
+    keyword: shouldSearch ? debouncedSearchQuery.trim() : undefined,
+    size: 8,
+    enabled: shouldSearch,
+  });
+
+  const searchSuggestions = searchData?.content || [];
 
   // Scroll detection for header compact mode
   useEffect(() => {
@@ -136,7 +147,7 @@ export default function Header() {
 
   const categoryEmoji: Record<string, string> = {
     cpu: "🔲", vga: "🎮", mainboard: "🔌", ram: "💾",
-    ssd: "💿", psu: "⚡", case: "🖥", cooler: "❄️",
+    harddisk: "💿", ssd: "💿", psu: "⚡", case: "🖥", cooler: "❄️",
   };
 
   // Mega menu content (shared between both modes)
@@ -146,7 +157,7 @@ export default function Header() {
         <div className="absolute left-0 top-full z-50 flex shadow-xl">
           {/* Category list */}
           <div className="w-[260px] border border-border bg-card">
-            {categories.map((cat) => {
+            {menuCategories.map((cat) => {
               const catImg = iconImgMap[cat.icon];
               const hasSub = cat.subcategories && cat.subcategories.length > 0;
               return (
@@ -177,7 +188,7 @@ export default function Header() {
 
           {/* Flyout subcategory panel */}
           {hoveredCat && (() => {
-            const cat = categories.find(c => c.id === hoveredCat);
+            const cat = menuCategories.find(c => c.id === hoveredCat);
             if (!cat?.subcategories?.length) return null;
             return (
               <div className="w-[520px] border border-l-0 border-border bg-card p-5">
@@ -209,6 +220,41 @@ export default function Header() {
       {/* Main header */}
       <div className="border-b border-border bg-background">
         <div className={`container mx-auto flex items-center gap-4 px-4 transition-all duration-300 ${scrolled ? "py-2" : "py-3"}`}>
+          {/* Mobile menu (left side) */}
+          <Sheet>
+            <SheetTrigger asChild className="lg:hidden">
+              <Button variant="ghost" size="icon" className="text-muted-foreground">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 bg-background">
+              {/* Mobile search */}
+              <form onSubmit={handleSearch} className="relative mt-6">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Tìm kiếm..." className="pl-10" />
+              </form>
+              <nav className="mt-4 flex flex-col gap-1">
+                {navLinks.map((l) => (
+                  <Link key={l.to} to={l.to} className={`rounded-md px-4 py-3 text-sm font-medium transition-colors ${isActive(l.to) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+                    {l.label}
+                  </Link>
+                ))}
+                <div className="my-2 border-t border-border" />
+                <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Danh mục</p>
+                {categoryLinks.map((c) => (
+                  <Link key={c.to} to={c.to} className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+                    {c.img ? (
+                      <img src={c.img} alt={c.label} className="h-4 w-4 object-contain dark:invert" />
+                    ) : (
+                      <Computer className="h-4 w-4" />
+                    )}
+                    {c.label}
+                  </Link>
+                ))}
+              </nav>
+            </SheetContent>
+          </Sheet>
+
           {/* Logo */}
           <Link to="/" className="flex shrink-0 items-center">
             <img src={logo} alt="PCShop Logo" className={`w-auto object-contain transition-all duration-300 ${scrolled ? "h-8" : "h-10"}`} />
@@ -254,8 +300,20 @@ export default function Header() {
                     onClick={() => { setSearchFocused(false); setSearchQuery(""); }}
                     className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
                   >
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/50 text-lg">
-                      {categoryEmoji[p.category] || "📦"}
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 text-lg">
+                      <img
+                        src={p.images?.[0]}
+                        alt={p.name}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          target.style.display = "none";
+                          const fallback = target.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "flex";
+                        }}
+                      />
+                      <span className="hidden h-full w-full items-center justify-center">{categoryEmoji[p.category] || "📦"}</span>
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-card-foreground">{p.name}</p>
@@ -338,40 +396,6 @@ export default function Header() {
               </Link>
             )}
 
-            {/* Mobile menu */}
-            <Sheet>
-              <SheetTrigger asChild className="lg:hidden">
-                <Button variant="ghost" size="icon" className="text-muted-foreground">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-72 bg-background">
-                {/* Mobile search */}
-                <form onSubmit={handleSearch} className="relative mt-6">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Tìm kiếm..." className="pl-10" />
-                </form>
-                <nav className="mt-4 flex flex-col gap-1">
-                  {navLinks.map((l) => (
-                    <Link key={l.to} to={l.to} className={`rounded-md px-4 py-3 text-sm font-medium transition-colors ${isActive(l.to) ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
-                      {l.label}
-                    </Link>
-                  ))}
-                  <div className="my-2 border-t border-border" />
-                  <p className="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Danh mục</p>
-                  {categoryLinks.map((c) => (
-                    <Link key={c.to} to={c.to} className="flex items-center gap-2 rounded-md px-4 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
-                      {c.img ? (
-                        <img src={c.img} alt={c.label} className="h-4 w-4 object-contain dark:invert" />
-                      ) : (
-                        <Computer className="h-4 w-4" />
-                      )}
-                      {c.label}
-                    </Link>
-                  ))}
-                </nav>
-              </SheetContent>
-            </Sheet>
           </div>
         </div>
       </div>

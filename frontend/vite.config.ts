@@ -10,6 +10,14 @@ export default defineConfig({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_BASE_URL || 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, '/api'),
+      },
+    },
   },
   plugins: [react()],
   resolve: {

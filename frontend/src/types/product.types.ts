@@ -3,6 +3,7 @@ export type CategoryType =
   | "mainboard"
   | "vga"
   | "ram"
+  | "harddisk"
   | "ssd"
   | "hdd"
   | "psu"
@@ -61,7 +62,7 @@ export interface RamProduct extends BaseProduct {
 }
 
 export interface StorageProduct extends BaseProduct {
-  category: "ssd" | "hdd";
+  category: "harddisk" | "ssd" | "hdd";
   capacity: string;
   interface: string;
   readSpeed?: string;

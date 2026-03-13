@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ProductCard from "@/components/shared/ProductCard";
-import { products } from "@/data/products";
+import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
 import heroBanner from "@/assets/hero-banner.png";
+import { useProducts } from "@/hooks/useProducts";
 
 /* ─── Infinite Carousel Hook ─── */
 function useInfiniteCarousel(totalItems: number, autoPlayMs = 5000) {
@@ -57,8 +58,11 @@ function useInfiniteCarousel(totalItems: number, autoPlayMs = 5000) {
 export default function HomePage() {
   document.title = "PCShop - Linh kiện PC chính hãng giá tốt";
 
-  const featuredProducts = products.filter((p) => p.featured).slice(0, 10);
-  const bestSellers = products.filter((p) => p.bestSeller).slice(0, 10);
+  const { data: productsData, isLoading } = useProducts({ page: 0, size: 20 });
+  const allProducts = productsData?.content || [];
+
+  const featuredProducts = allProducts.filter((p) => p.featured).slice(0, 10);
+  const bestSellers = allProducts.filter((p) => p.bestSeller).slice(0, 10);
 
   // Responsive items per page
   const [itemsPerPage, setItemsPerPage] = useState(4);
@@ -87,6 +91,14 @@ export default function HomePage() {
   // Offset to account for the prepended clones
   const translateIndex = featured.index + cloneCount;
   const itemWidth = 100 / itemsPerPage;
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <LoadingSkeleton count={10} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col">
