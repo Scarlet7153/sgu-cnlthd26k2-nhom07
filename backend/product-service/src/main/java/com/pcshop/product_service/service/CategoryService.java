@@ -21,12 +21,24 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
 
+    // In-memory cache for active categories
+    private volatile List<Category> cachedActiveCategories = null;
+    private volatile long activeCategoriesCacheTTL = 0;
+    private static final long CACHE_TTL_MILLIS = 10 * 60 * 1000; // 10 minutes
+
     public List<Category> getAllCategories() {
         return categoryRepository.findAll();
     }
 
     public List<Category> getActiveCategories() {
-        return categoryRepository.findByIsActive(true);
+        long now = System.currentTimeMillis();
+        if (cachedActiveCategories != null && (now - activeCategoriesCacheTTL) < CACHE_TTL_MILLIS) {
+            return cachedActiveCategories;
+        }
+        List<Category> categories = categoryRepository.findByIsActive(true);
+        cachedActiveCategories = categories;
+        activeCategoriesCacheTTL = now;
+        return categories;
     }
 
     public Category getCategoryById(String id) {
@@ -52,7 +64,7 @@ public class CategoryService {
                 .build();
 
         category = categoryRepository.save(category);
-        log.info("Category created: {}", category.getCode());
+        clearCache();
         return category;
     }
 
@@ -75,7 +87,7 @@ public class CategoryService {
         }
 
         category = categoryRepository.save(category);
-        log.info("Category updated: {}", category.getCode());
+        clearCache();
         return category;
     }
 
@@ -84,7 +96,12 @@ public class CategoryService {
             throw new ResourceNotFoundException("Category", "id", id);
         }
         categoryRepository.deleteById(id);
-        log.info("Category deleted: {}", id);
+        clearCache();
+    }
+
+    private void clearCache() {
+        cachedActiveCategories = null;
+        activeCategoriesCacheTTL = 0;
     }
 
     private List<Subcategory> mapSubcategories(List<CategoryRequest.SubcategoryRequest> requests) {

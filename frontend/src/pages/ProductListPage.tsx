@@ -382,7 +382,7 @@ export default function ProductListPage() {
   const [selectedSpecs, setSelectedSpecs] = useState<Record<string, string[]>>({});
 
   // Fetch brands from DB
-  const { brands: dbBrands } = useBrands();
+  const { brands: dbBrands, loading: brandsLoading } = useBrands();
 
   // Sync brand từ URL + spec params từ URL vào state; reset filters khi URL thay đổi
   useEffect(() => {
@@ -693,16 +693,28 @@ export default function ProductListPage() {
       <div className="border border-t-0 border-border bg-card px-4 py-4">
         <h3 className="mb-3 text-sm font-bold uppercase text-foreground">Thương hiệu</h3>
         <div className="space-y-1.5">
-          {allBrands.map((brand) => (
-            <label key={brand} className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-              <Checkbox
-                checked={selectedBrands.includes(brand)}
-                onCheckedChange={() => toggleBrand(brand)}
-              />
-              <span>{brand}</span>
-              <span className="text-xs text-muted-foreground">({brandCounts[brand] || 0})</span>
-            </label>
-          ))}
+          {brandsLoading ? (
+            // Loading skeleton
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-pulse rounded bg-muted"></div>
+                <div className="h-4 flex-1 animate-pulse rounded bg-muted"></div>
+              </div>
+            ))
+          ) : allBrands.length === 0 ? (
+            <span className="text-xs text-muted-foreground">Không có thương hiệu</span>
+          ) : (
+            allBrands.map((brand) => (
+              <label key={brand} className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                <Checkbox
+                  checked={selectedBrands.includes(brand)}
+                  onCheckedChange={() => toggleBrand(brand)}
+                />
+                <span>{brand}</span>
+                <span className="text-xs text-muted-foreground">({brandCounts[brand] || 0})</span>
+              </label>
+            ))
+          )}
         </div>
       </div>
 

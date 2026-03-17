@@ -9,8 +9,8 @@ import java.util.Map;
 
 @Data
 public class ProductRequest {
-    @NotBlank(message = "categoryID is required")
-    private String categoryID;
+    @NotBlank(message = "categoryId is required")
+    private String categoryId;
 
     @NotBlank(message = "Name is required")
     private String name;

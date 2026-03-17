@@ -1,9 +1,12 @@
 package com.pcshop.product_service.model;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.pcshop.product_service.config.ObjectIdSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.index.TextIndexed;
@@ -23,7 +26,9 @@ public class Product {
     private String id;
 
     @Indexed
-    private String categoryID; // ref → categories._id
+    @Field("categoryId")
+    @JsonSerialize(using = ObjectIdSerializer.class)
+    private ObjectId categoryId; // ref → categories._id
 
     @TextIndexed
     private String name;
