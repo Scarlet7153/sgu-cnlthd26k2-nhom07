@@ -6,9 +6,12 @@ import com.pcshop.product_service.model.Category;
 import com.pcshop.product_service.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.concurrent.TimeUnit;
 
 import java.util.List;
 
@@ -22,7 +25,9 @@ public class CategoryController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<Category>>> getAllCategories() {
         List<Category> categories = categoryService.getActiveCategories();
-        return ResponseEntity.ok(ApiResponse.ok(categories));
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePublic())
+            .body(ApiResponse.ok(categories));
     }
 
     @GetMapping("/all")

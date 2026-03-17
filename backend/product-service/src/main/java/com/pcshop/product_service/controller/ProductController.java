@@ -7,16 +7,21 @@ import com.pcshop.product_service.service.ProductService;
 import com.pcshop.product_service.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.concurrent.TimeUnit;
+
 @RestController
 @RequestMapping("/api/products")
 @RequiredArgsConstructor
+@Slf4j
 public class ProductController {
 
     private final ProductService productService;
@@ -24,9 +29,93 @@ public class ProductController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<Product>>> getAllProducts(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Long minPrice,
+            @RequestParam(required = false) Long maxPrice,
+            // Additional filters for subcategories
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String efficiency,
+            @RequestParam(required = false) String case_type,
+            @RequestParam(required = false) String cooler_type,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.getAllProducts(pageable);
-        return ResponseEntity.ok(ApiResponse.ok(products));
+        
+        // Normalize: use 'q' or 'search', prefer 'q' if both provided
+        String keyword = (q != null && !q.trim().isEmpty()) ? q : search;
+        
+        try {
+            // Case 1: Search + Category filter
+            if (keyword != null && !keyword.trim().isEmpty() && category != null && !category.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode(category);
+                Page<Product> products = productService.searchProducts(keyword, categoryId, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 2: Only search
+            if (keyword != null && !keyword.trim().isEmpty()) {
+                Page<Product> products = productService.searchProducts(keyword, null, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 3: Category + optional price filter
+            if (category != null && !category.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode(category);
+                long min = minPrice != null ? minPrice : 0L;
+                long max = maxPrice != null ? maxPrice : 999999999L;
+                Page<Product> products = productService.filterByPriceRange(categoryId, min, max, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 4: Type filter (e.g., RAM subcategories: DDR5, DDR4, DDR3)
+            if (type != null && !type.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode("RAM");
+                Page<Product> products = productService.searchBySpec("type", type, categoryId, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 5: Efficiency filter (e.g., PSU subcategories)
+            if (efficiency != null && !efficiency.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode("PSU");
+                Page<Product> products = productService.searchBySpec("efficiency", efficiency, categoryId, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 6: Case type filter (e.g., CASE subcategories)
+            if (case_type != null && !case_type.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode("CASE");
+                Page<Product> products = productService.searchBySpec("case_type", case_type, categoryId, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 7: Cooler type filter (e.g., COOLER subcategories)
+            if (cooler_type != null && !cooler_type.trim().isEmpty()) {
+                String categoryId = resolveCategoryCode("COOLER");
+                Page<Product> products = productService.searchBySpec("cooler_type", cooler_type, categoryId, pageable);
+                return ResponseEntity.ok(ApiResponse.ok(products));
+            }
+            
+            // Case 8: No filters - return all
+            Page<Product> products = productService.getAllProducts(pageable);
+            return ResponseEntity.ok(ApiResponse.ok(products));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(ApiResponse.ok(Page.empty(pageable)));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Error fetching products: " + e.getMessage()));
+        }
+    }
+    
+    /**
+     * Resolve category code (e.g., "mainboard", "vga") to MongoDB ObjectId
+     * Returns the ID if found, otherwise returns the input as-is
+     */
+    private String resolveCategoryCode(String code) {
+        try {
+            return categoryService.getCategoryByCode(code.toUpperCase()).getId();
+        } catch (Exception ex) {
+            return code;
+        }
     }
 
     @GetMapping("/{id}")
@@ -54,19 +143,19 @@ public class ProductController {
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<Page<Product>>> searchProducts(
             @RequestParam String keyword,
-            @RequestParam(required = false) String categoryID,
+            @RequestParam(required = false) String categoryId,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.searchProducts(keyword, categoryID, pageable);
+        Page<Product> products = productService.searchProducts(keyword, categoryId, pageable);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
     @GetMapping("/filter")
     public ResponseEntity<ApiResponse<Page<Product>>> filterProducts(
-            @RequestParam String categoryID,
+            @RequestParam String categoryId,
             @RequestParam(defaultValue = "0") Long minPrice,
             @RequestParam(defaultValue = "999999999") Long maxPrice,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.filterByPriceRange(categoryID, minPrice, maxPrice, pageable);
+        Page<Product> products = productService.filterByPriceRange(categoryId, minPrice, maxPrice, pageable);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
@@ -95,6 +184,8 @@ public class ProductController {
     @GetMapping("/brands")
     public ResponseEntity<ApiResponse<java.util.List<String>>> getBrands() {
         java.util.List<String> brands = productService.getBrands();
-        return ResponseEntity.ok(ApiResponse.ok(brands));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePublic())
+                .body(ApiResponse.ok(brands));
     }
 }

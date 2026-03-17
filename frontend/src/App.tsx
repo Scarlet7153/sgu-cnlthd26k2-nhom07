@@ -1,8 +1,8 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { CartProvider } from "@/context/CartContext";
 import { AuthProvider } from "@/context/AuthContext";
@@ -40,45 +40,80 @@ function PageFallback() {
   );
 }
 
+function AppContent() {
+  const queryClient = useQueryClient();
+
+  // Prefetch categories and brands on app startup
+  useEffect(() => {
+    // Prefetch categories for Header and menus
+    queryClient.prefetchQuery({
+      queryKey: ["categories-menu"],
+      queryFn: async () => {
+        const response = await fetch("/api/categories");
+        if (!response.ok) throw new Error("Failed to fetch categories");
+        const data = await response.json();
+        return data.data || [];
+      },
+      staleTime: 10 * 60 * 1000, // 10 minutes
+    });
+
+    // Prefetch brands for product filters
+    queryClient.prefetchQuery({
+      queryKey: ["brands"],
+      queryFn: async () => {
+        const response = await fetch("/api/products/brands");
+        if (!response.ok) throw new Error("Failed to fetch brands");
+        const data = await response.json();
+        return data.data || [];
+      },
+      staleTime: 5 * 60 * 1000, // 5 minutes
+    });
+  }, [queryClient]);
+
+  return (
+    <BrowserRouter>
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex-1">
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/products" element={<ProductListPage />} />
+              <Route path="/product/:id" element={<ProductDetailPage />} />
+              <Route path="/cart" element={<CartPage />} />
+              <Route path="/checkout" element={<CheckoutPage />} />
+              <Route path="/compare" element={<ComparePage />} />
+              <Route path="/pc-builder" element={<PcBuilderPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/account" element={<AccountPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/order/:id" element={<OrderDetailPage />} />
+              <Route path="/order-success" element={<OrderSuccessPage />} />
+              <Route path="/about" element={<AboutPage />} />
+              <Route path="/contact" element={<ContactPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </main>
+        <Footer />
+      </div>
+    </BrowserRouter>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <CartProvider>
         <OrderProvider>
-            <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <div className="flex min-h-screen flex-col">
-              <Header />
-              <main className="flex-1">
-                <Suspense fallback={<PageFallback />}>
-                  <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/products" element={<ProductListPage />} />
-                    <Route path="/product/:id" element={<ProductDetailPage />} />
-                    <Route path="/cart" element={<CartPage />} />
-                    <Route path="/checkout" element={<CheckoutPage />} />
-                    <Route path="/compare" element={<ComparePage />} />
-                    <Route path="/pc-builder" element={<PcBuilderPage />} />
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/signup" element={<SignupPage />} />
-                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-                    <Route path="/reset-password" element={<ResetPasswordPage />} />
-                    <Route path="/account" element={<AccountPage />} />
-                    <Route path="/orders" element={<OrdersPage />} />
-                    <Route path="/order/:id" element={<OrderDetailPage />} />
-                    <Route path="/order-success" element={<OrderSuccessPage />} />
-                    <Route path="/about" element={<AboutPage />} />
-                    <Route path="/contact" element={<ContactPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Suspense>
-              </main>
-              <Footer />
-            </div>
-          </BrowserRouter>
-            </TooltipProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <AppContent />
+          </TooltipProvider>
         </OrderProvider>
       </CartProvider>
     </AuthProvider>

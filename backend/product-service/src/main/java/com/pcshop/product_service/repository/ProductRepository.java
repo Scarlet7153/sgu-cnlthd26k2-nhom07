@@ -1,6 +1,7 @@
 package com.pcshop.product_service.repository;
 
 import com.pcshop.product_service.model.Product;
+import org.bson.types.ObjectId;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
@@ -12,19 +13,19 @@ import java.util.List;
 @Repository
 public interface ProductRepository extends MongoRepository<Product, String> {
 
-    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryID': ?0 }")
-    Page<Product> findByCategoryID(String categoryID, Pageable pageable);
+    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryId': ?0 }")
+    Page<Product> findByCategoryId(ObjectId categoryId, Pageable pageable);
 
-    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryID': ?0 }")
-    List<Product> findByCategoryID(String categoryID);
+    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryId': ?0 }")
+    List<Product> findByCategoryId(ObjectId categoryId);
 
     Page<Product> findBySocket(String socket, Pageable pageable);
 
     @Query(value = "{ 'name': { $regex: ?0, $options: 'i' } }")
     Page<Product> searchByName(String keyword, Pageable pageable);
 
-    @Query(value = "{ 'categoryID': ?0, 'price': { $gte: ?1, $lte: ?2 } }")
-    Page<Product> findByCategoryAndPriceRange(String categoryID, Long minPrice, Long maxPrice, Pageable pageable);
+    @Query(value = "{ 'categoryId': ?0, 'price': { $gte: ?1, $lte: ?2 } }")
+    Page<Product> findByCategoryAndPriceRange(ObjectId categoryId, Long minPrice, Long maxPrice, Pageable pageable);
 
-    long countByCategoryID(String categoryID);
+    long countByCategoryId(ObjectId categoryId);
 }
