@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MapPin, Phone, Mail, Clock, Send, ChevronRight, MessageSquare } from "lucide-react";
 
 export default function ContactPage() {
-  document.title = "Liên hệ - TechPC";
+  document.title = "Liên hệ - PCShop";
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", subject: "", message: "" });

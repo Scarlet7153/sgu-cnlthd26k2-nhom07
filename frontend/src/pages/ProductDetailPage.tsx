@@ -65,7 +65,7 @@ export default function ProductDetailPage() {
     );
   }
 
-  document.title = `${product.name} - TechPC`;
+  document.title = `${product.name} - PCShop`;
 
   const handleAddToCart = () => {
     for (let i = 0; i < quantity; i++) addToCart(product);

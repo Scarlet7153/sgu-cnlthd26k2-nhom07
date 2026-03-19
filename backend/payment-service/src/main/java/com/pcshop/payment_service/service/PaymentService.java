@@ -34,19 +34,24 @@ public class PaymentService {
             throw new BadRequestException("Invalid payment method. Must be one of: " + VALID_METHODS);
         }
 
-        // Check if payment already exists for this order
-        paymentRepository.findByOrderId(request.getOrderId()).ifPresent(p -> {
-            if (!"failed".equals(p.getStatus())) {
-                throw new BadRequestException("Payment already exists for this order with status: " + p.getStatus());
+        Payment payment = paymentRepository.findByOrderId(request.getOrderId()).orElse(null);
+        if (payment != null) {
+            if ("success".equals(payment.getStatus()) || "refunded".equals(payment.getStatus())) {
+                throw new BadRequestException("Payment already completed for this order with status: " + payment.getStatus());
             }
-        });
-
-        Payment payment = Payment.builder()
-                .orderId(request.getOrderId())
-                .accountId(accountId)
-                .amount(request.getAmount())
-                .method(request.getMethod())
-                .build();
+            payment.setMethod(request.getMethod());
+            payment.setAmount(request.getAmount());
+            if ("failed".equals(payment.getStatus())) {
+                payment.setStatus("pending");
+            }
+        } else {
+            payment = Payment.builder()
+                    .orderId(request.getOrderId())
+                    .accountId(accountId)
+                    .amount(request.getAmount())
+                    .method(request.getMethod())
+                    .build();
+        }
 
         // Handle COD — mark as success immediately
         if ("COD".equals(request.getMethod())) {
@@ -85,8 +90,9 @@ public class PaymentService {
      * Create MoMo payment URL and return it.
      */
     public Map<String, String> createMomoPaymentUrl(String orderId, Long amount) {
+        String momoOrderId = orderId + "_" + System.currentTimeMillis();
         String orderInfo = "Thanh toan don hang " + orderId;
-        Map<String, String> momoResult = momoService.createPaymentUrl(orderId, amount, orderInfo);
+        Map<String, String> momoResult = momoService.createPaymentUrl(momoOrderId, amount, orderInfo);
 
         // Update payment with request data log
         paymentRepository.findByOrderId(orderId).ifPresent(payment -> {
@@ -131,7 +137,12 @@ public class PaymentService {
             throw new BadRequestException("Invalid MoMo signature");
         }
 
-        String orderId = (String) callbackData.get("orderId");
+        String momoOrderId = (String) callbackData.get("orderId");
+        String orderId = momoOrderId;
+        if (momoOrderId != null && momoOrderId.contains("_")) {
+            orderId = momoOrderId.substring(0, momoOrderId.indexOf("_"));
+        }
+
         String transId = String.valueOf(callbackData.get("transId"));
         Integer resultCode = callbackData.get("resultCode") instanceof Integer
                 ? (Integer) callbackData.get("resultCode")

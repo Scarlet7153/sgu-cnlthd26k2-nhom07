@@ -1,4 +1,5 @@
 import { useState } from "react";
+import logo from "@/assets/logo.png";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Cpu, Eye, EyeOff } from "lucide-react";
 
 export default function ResetPasswordPage() {
-  document.title = "Đặt lại mật khẩu - TechPC";
+  document.title = "Đặt lại mật khẩu - PCShop";
   const navigate = useNavigate();
   const { toast } = useToast();
   const [password, setPassword] = useState("");
@@ -33,7 +34,7 @@ export default function ResetPasswordPage() {
     <div className="flex min-h-[80vh] items-center justify-center px-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <Cpu className="mx-auto h-8 w-8 text-primary" />
+          <img src={logo} alt="PCShop Logo" className="mx-auto h-10 w-auto object-contain transition-all duration-300" />
           <h1 className="mt-6 text-2xl font-bold text-foreground">Đặt mật khẩu mới</h1>
         </div>
         <form onSubmit={handleReset} className="space-y-4">

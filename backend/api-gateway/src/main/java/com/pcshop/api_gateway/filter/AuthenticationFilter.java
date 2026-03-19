@@ -2,7 +2,6 @@ package com.pcshop.api_gateway.filter;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -16,6 +15,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Component
@@ -24,31 +24,35 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
     @Value("${jwt.secret:pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256}")
     private String jwtSecret;
 
-    // Các public endpoints không cần Auth
-    private final List<String> openApiEndpoints = List.of(
-            "/api/auth/register",
-            "/api/auth/login",
-            "/api/auth/refresh",
-            "/api/products", // GET products
-            "/api/categories", // GET categories
-            "/api/payments/callback/momo",
-            "/eureka"
+    // Always-public routes (any HTTP method)
+    private final List<String> publicPrefixes = List.of(
+            "/api/auth/",             // login, register, verify-otp, resend-otp, refresh
+            "/api/payments/callback/" // payment webhooks
+    );
+
+    // Public for GET only (product browsing without login)
+    private final List<String> publicGetPrefixes = List.of(
+            "/api/products",
+            "/api/categories",
+            "/api/reviews"
     );
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
-        String path = request.getURI().getPath();
+        String path   = request.getURI().getPath();
+        String method = request.getMethod().name();
 
-        // Check if route is public
-        boolean isPublic = openApiEndpoints.stream().anyMatch(path::startsWith);
-        if (isPublic && request.getMethod().name().equals("GET") || 
-            path.startsWith("/api/auth/") || 
-            path.startsWith("/api/payments/callback/")) {
-            return chain.filter(exchange);
-        }
+        // 1. Always-public (any method)
+        boolean isAlwaysPublic = publicPrefixes.stream().anyMatch(path::startsWith);
+        if (isAlwaysPublic) return chain.filter(exchange);
 
-        // Must have Authorization header
+        // 2. Public GET only
+        boolean isPublicGet = "GET".equals(method)
+                && publicGetPrefixes.stream().anyMatch(path::startsWith);
+        if (isPublicGet) return chain.filter(exchange);
+
+        // 3. All others require valid JWT
         if (!request.getHeaders().containsKey("Authorization")) {
             return onError(exchange, "Missing Authorization Header", HttpStatus.UNAUTHORIZED);
         }
@@ -61,8 +65,9 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
         String token = authHeader.substring(7);
 
         try {
-            // Validate & Parse token
-            SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtSecret));
+            // IMPORTANT: auth-service signs with getBytes(UTF_8) — must match here
+            SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+
             Claims claims = Jwts.parser()
                     .verifyWith(key)
                     .build()
@@ -70,30 +75,32 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
                     .getPayload();
 
             String userId = claims.getSubject();
-            String role = claims.get("role", String.class);
+            String role   = claims.get("role", String.class);
 
-            // Mutate request to add user details as headers for downstream backend services
-            ServerHttpRequest modifiedRequest = exchange.getRequest()
-                    .mutate()
-                    .header("X-User-Id", userId)
-                    .header("X-User-Role", role)
+            // Pass user info to downstream services via custom headers
+            ServerHttpRequest modifiedRequest = request.mutate()
+                    .header("X-User-Id",   userId != null ? userId : "")
+                    .header("X-User-Role", role   != null ? role   : "")
                     .build();
 
             return chain.filter(exchange.mutate().request(modifiedRequest).build());
+
         } catch (Exception e) {
-            return onError(exchange, "Invalid/Expired Token", HttpStatus.UNAUTHORIZED);
+            return onError(exchange, "Invalid or Expired Token", HttpStatus.UNAUTHORIZED);
         }
     }
 
-    private Mono<Void> onError(ServerWebExchange exchange, String err, HttpStatus httpStatus) {
+    private Mono<Void> onError(ServerWebExchange exchange, String message, HttpStatus status) {
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(httpStatus);
-        // Có thể custom JSON response body ở đây nếu cần thiết
-        return response.setComplete();
+        response.setStatusCode(status);
+        response.getHeaders().add("Content-Type", "application/json");
+        byte[] body = ("{\"status\":\"error\",\"message\":\"" + message + "\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
     }
 
     @Override
     public int getOrder() {
-        return -1; // Execute extremely early in the filter chain
+        return -1; // highest priority
     }
 }

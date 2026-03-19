@@ -78,26 +78,7 @@ public class AuthService {
         account = accountRepository.save(account);
         log.info("New unverified account created: {}", account.getEmail());
 
-        // Generate and send OTP
-        String otpCode = generateOtpCode();
-        Instant expiresAt = Instant.now().plusSeconds(OTP_EXPIRY_MINUTES * 60);
-        
-        // Delete any existing OTP for this email
-        otpRepository.deleteByEmail(normalizedEmail);
-        
-        // Save new OTP
-        Otp otp = Otp.builder()
-                .email(normalizedEmail)
-                .code(otpCode)
-                .expiresAt(expiresAt)
-                .createdAt(Instant.now())
-                .attempts(0)
-                .build();
-        
-        otpRepository.save(otp);
-        
-        // Send OTP email
-        emailService.sendOtpEmail(normalizedEmail, otpCode);
+        generateAndSendOtp(normalizedEmail);
         
         return RegisterResponse.builder()
                 .message("Mã OTP đã được gửi đến email của bạn")
@@ -115,7 +96,9 @@ public class AuthService {
         }
 
         if (!"active".equals(account.getStatus())) {
-            throw new BadRequestException("Account not verified");
+            String email = account.getEmail().trim().toLowerCase();
+            generateAndSendOtp(email);
+            throw new BadRequestException("Account not verified. New OTP has been sent to your email");
         }
 
         log.info("User logged in: {}", account.getEmail());
@@ -196,26 +179,7 @@ public class AuthService {
             throw new BadRequestException("Account is already verified");
         }
 
-        // Generate and send new OTP
-        String otpCode = generateOtpCode();
-        Instant expiresAt = Instant.now().plusSeconds(OTP_EXPIRY_MINUTES * 60);
-
-        // Delete existing OTP
-        otpRepository.deleteByEmail(normalizedEmail);
-
-        // Save new OTP
-        Otp otp = Otp.builder()
-                .email(normalizedEmail)
-                .code(otpCode)
-                .expiresAt(expiresAt)
-                .createdAt(Instant.now())
-                .attempts(0)
-                .build();
-
-        otpRepository.save(otp);
-
-        // Send OTP email
-        emailService.sendOtpEmail(normalizedEmail, otpCode);
+        generateAndSendOtp(normalizedEmail);
 
         return RegisterResponse.builder()
                 .message("Mã OTP mới đã được gửi đến email của bạn")
@@ -228,6 +192,24 @@ public class AuthService {
         Random random = new Random();
         int otp = 100000 + random.nextInt(900000); // 6-digit number
         return String.valueOf(otp);
+    }
+
+    private void generateAndSendOtp(String normalizedEmail) {
+        String otpCode = generateOtpCode();
+        Instant expiresAt = Instant.now().plusSeconds(OTP_EXPIRY_MINUTES * 60);
+
+        otpRepository.deleteByEmail(normalizedEmail);
+
+        Otp otp = Otp.builder()
+                .email(normalizedEmail)
+                .code(otpCode)
+                .expiresAt(expiresAt)
+                .createdAt(Instant.now())
+                .attempts(0)
+                .build();
+
+        otpRepository.save(otp);
+        emailService.sendOtpEmail(normalizedEmail, otpCode);
     }
 
     private AuthResponse generateAuthResponse(Account account) {

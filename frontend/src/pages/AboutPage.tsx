@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Cpu, Users, Award, Truck, Shield, Headphones, MapPin, Phone, Mail, Clock } from "lucide-react";
 
 export default function AboutPage() {
-  document.title = "Giới thiệu - TechPC";
+  document.title = "Giới thiệu - PCShop";
 
   return (
     <div className="flex flex-col">
@@ -13,7 +13,7 @@ export default function AboutPage() {
             <Cpu className="h-8 w-8 text-primary-foreground" />
           </div>
           <h1 className="mt-6 text-3xl font-extrabold text-foreground md:text-4xl">
-            Về <span className="text-gradient-primary">TechPC</span>
+            Về <span className="text-gradient-primary">PCShop</span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-muted-foreground md:text-lg">
             Chuyên cung cấp linh kiện PC chính hãng, giá tốt nhất thị trường. 
@@ -41,7 +41,7 @@ export default function AboutPage() {
 
       {/* Why us */}
       <section className="container mx-auto px-4 py-12">
-        <h2 className="mb-8 text-center text-2xl font-bold text-foreground">Tại sao chọn TechPC?</h2>
+        <h2 className="mb-8 text-center text-2xl font-bold text-foreground">Tại sao chọn PCShop?</h2>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[
             { icon: Award, title: "Hàng chính hãng 100%", desc: "Tất cả sản phẩm đều được nhập khẩu chính hãng với đầy đủ giấy tờ, tem bảo hành." },

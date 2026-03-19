@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class UpdateProfileRequest {
-    private String name;
+    private String fullName;
 
     @Email(message = "Invalid email format")
     private String email;

@@ -328,7 +328,7 @@ function loadSavedConfig(): {
 }
 
 export default function PcBuilderPage() {
-  document.title = "PC Builder - TechPC";
+  document.title = "PC Builder - PCShop";
   const { addToCart } = useCart();
   const { toast } = useToast();
 
@@ -588,7 +588,7 @@ export default function PcBuilderPage() {
     }
 
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "TechPC";
+    workbook.creator = "PCShop";
     workbook.created = new Date();
     const webUrl = window.location.origin;
 

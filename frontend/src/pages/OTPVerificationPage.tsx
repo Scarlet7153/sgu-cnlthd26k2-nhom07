@@ -91,6 +91,14 @@ export default function OTPVerificationPage() {
   };
 
   const handleResendOtp = async () => {
+    if (resendCooldown > 0 || resending) {
+      toast({
+        title: "Chưa thể gửi lại OTP",
+        description: `Bạn có thể gửi lại sau ${formatTime(resendCooldown)}.`,
+      });
+      return;
+    }
+
     setResending(true);
     const { error, otpExpiresIn } = await resendOtp(email);
     setResending(false);
@@ -160,6 +168,9 @@ export default function OTPVerificationPage() {
 
         <div className="text-center">
           <p className="text-sm text-muted-foreground">Không nhận được mã?</p>
+          {resendCooldown > 0 && (
+            <p className="text-xs text-muted-foreground">Bạn chỉ có thể gửi lại sau {formatTime(resendCooldown)}</p>
+          )}
           <Button
             type="button"
             variant="link"
@@ -167,7 +178,7 @@ export default function OTPVerificationPage() {
             disabled={resendCooldown > 0 || resending}
             className="text-primary hover:underline"
           >
-            {resending ? "Đang gửi..." : resendCooldown > 0 ? `Gửi lại trong ${formatTime(resendCooldown)}` : "Gửi lại OTP"}
+            {resending ? "Đang gửi..." : "Gửi lại OTP"}
           </Button>
         </div>
 

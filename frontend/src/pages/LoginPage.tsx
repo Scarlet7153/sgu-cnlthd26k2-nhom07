@@ -21,9 +21,15 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await signIn(email, password);
+    const { error, requiresOtp } = await signIn(email, password);
     setLoading(false);
-    if (error) {
+    if (requiresOtp) {
+      toast({
+        title: "Tài khoản chưa xác thực",
+        description: "Vui lòng nhập mã OTP để kích hoạt tài khoản.",
+      });
+      navigate("/verify-otp", { state: { email } });
+    } else if (error) {
       toast({ title: "Đăng nhập thất bại", description: error, variant: "destructive" });
     } else {
       toast({ title: "Đăng nhập thành công!" });

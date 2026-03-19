@@ -41,7 +41,7 @@ interface CreateOrderData {
   items: CartItem[];
   address?: OrderAddress;
   shippingAddress?: OrderAddress;
-  paymentMethod: "cod" | "banking";
+  paymentMethod: "cod" | "momo";
   totalPrice: number;
   note?: string;
 }
@@ -122,7 +122,7 @@ export function useOrders() {
         // Backend expects minimal CreateOrderRequest { paymentMethod, note }
         // Map frontend paymentMethod to backend accepted values
         let paymentMethod = orderData.paymentMethod;
-        let mappedPaymentMethod = paymentMethod === "cod" ? "COD" : paymentMethod === "banking" ? "MOMO" : (paymentMethod || "").toString().toUpperCase();
+        let mappedPaymentMethod = paymentMethod === "cod" ? "COD" : paymentMethod === "momo" ? "MOMO" : (paymentMethod || "").toString().toUpperCase();
 
         const payload = {
           paymentMethod: mappedPaymentMethod,
