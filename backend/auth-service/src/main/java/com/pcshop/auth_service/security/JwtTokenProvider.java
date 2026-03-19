@@ -27,11 +27,11 @@ public class JwtTokenProvider {
         Date expiryDate = new Date(now.getTime() + jwtProperties.getAccessTokenExpiration());
 
         return Jwts.builder()
-                .subject(userId)
+                .setSubject(userId)
                 .claim("email", email)
                 .claim("role", role)
-                .issuedAt(now)
-                .expiration(expiryDate)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
     }
@@ -59,11 +59,11 @@ public class JwtTokenProvider {
     }
 
     private Claims parseClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(getSigningKey())
+        return Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
                 .build()
-                .parseSignedClaims(token)
-                .getPayload();
+                .parseClaimsJws(token)
+                .getBody();
     }
 
     public long getAccessTokenExpirationMs() {
