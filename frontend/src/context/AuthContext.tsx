@@ -7,6 +7,7 @@ interface User {
   email: string;
   name?: string;
   phone?: string;
+  role?: string;
   address?: string;
   addressData?: {
     province?: { code?: number | string; name?: string; [key: string]: any };
@@ -26,6 +27,7 @@ interface BackendAccount {
   fullName?: string;
   name?: string;
   phone?: string;
+  role?: string;
 }
 
 interface LoginPayload {
@@ -89,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: account?.email || email,
         name: account?.fullName || account?.name || account?.email,
         phone: account?.phone,
+        role: account?.role || "USER",
         token: authData?.accessToken || authData?.token || ""
       };
 
@@ -143,6 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: account?.email || email,
         name: account?.fullName || account?.name || account?.email,
         phone: account?.phone,
+        role: account?.role || "USER",
         token: authData?.accessToken || authData?.token || ""
       };
 
