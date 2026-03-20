@@ -517,14 +517,26 @@ export default function ProductListPage() {
     let result = [...products];
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          Object.values(p.specs).some((v) => String(v).toLowerCase().includes(q))
-      );
+      const keywords = q.split(/\s+/).filter(k => k.length > 2);
+      
+      result = result.filter((p) => {
+        const name = p.name.toLowerCase();
+        const brand = p.brand.toLowerCase();
+        const description = p.description.toLowerCase();
+        const specs = Object.values(p.specs || {}).map(v => String(v).toLowerCase()).join(" ");
+        
+        // If no keywords (all < 3 chars), fall back to substring search
+        if (keywords.length === 0) {
+          return name.includes(q) || brand.includes(q) || description.includes(q) || specs.includes(q);
+        }
+        
+        // For keyword-based search, at least 1 keyword must match
+        const matchCount = keywords.filter(k =>
+          name.includes(k) || brand.includes(k) || description.includes(k) || specs.includes(k)
+        ).length;
+        
+        return matchCount >= Math.max(1, keywords.length - 1);
+      });
     }
     if (categoryParam) result = result.filter((p) => p.category === categoryParam);
 

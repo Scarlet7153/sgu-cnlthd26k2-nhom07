@@ -63,6 +63,7 @@ export default function Header() {
   const [catOpen, setCatOpen] = useState(false);
   const [hoveredCat, setHoveredCat] = useState<string | null>(null);
   const catRef = useRef<HTMLDivElement>(null);
+  const closeMenuTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [dark, setDark] = useState(() => {
     if (typeof window !== "undefined") {
@@ -90,11 +91,22 @@ export default function Header() {
 
   const { data: searchData, isLoading: isSearchLoading } = useProducts({
     keyword: shouldSearch ? debouncedSearchQuery.trim() : undefined,
-    size: 8,
+    size: 5,
     enabled: shouldSearch,
   });
 
-  const searchSuggestions = searchData?.content || [];
+  // Filter to show only relevant products
+  const searchSuggestions = (searchData?.content || []).filter((p) => {
+    const query = debouncedSearchQuery.toLowerCase();
+    const name = p.name.toLowerCase();
+    const brand = p.brand.toLowerCase();
+    
+    // Show if product name contains most search keywords or exact brand match
+    const keywords = query.split(' ').filter(k => k.length > 2);
+    const matchCount = keywords.filter(k => name.includes(k) || brand.includes(k)).length;
+    
+    return matchCount >= Math.max(1, keywords.length - 1); // At least 1 keyword match
+  }).slice(0, 5);
 
   // Scroll detection for header compact mode
   useEffect(() => {
@@ -128,14 +140,33 @@ export default function Header() {
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
-  // Close cat menu when scrolled state changes
+  // Cleanup timeout on unmount
   useEffect(() => {
-    setCatOpen(false);
-    setHoveredCat(null);
-  }, [scrolled]);
+    return () => {
+      if (closeMenuTimeoutRef.current) {
+        clearTimeout(closeMenuTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const isActive = (path: string) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+
+  // Safe menu close with delay to prevent flicker
+  const scheduleMenuClose = useCallback(() => {
+    closeMenuTimeoutRef.current = setTimeout(() => {
+      setCatOpen(false);
+      setHoveredCat(null);
+    }, 150);
+  }, []);
+
+  // Cancel pending menu close
+  const cancelMenuClose = useCallback(() => {
+    if (closeMenuTimeoutRef.current) {
+      clearTimeout(closeMenuTimeoutRef.current);
+      closeMenuTimeoutRef.current = null;
+    }
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,7 +250,7 @@ export default function Header() {
     <header className={`sticky top-0 z-50 bg-background transition-shadow duration-300 ${scrolled ? "shadow-md" : ""}`}>
       {/* Main header */}
       <div className="border-b border-border bg-background">
-        <div className={`container mx-auto flex items-center gap-4 px-4 transition-all duration-300 ${scrolled ? "py-2" : "py-3"}`}>
+        <div className="container mx-auto flex items-center gap-4 px-4 py-2.5">
           {/* Mobile menu (left side) */}
           <Sheet>
             <SheetTrigger asChild className="lg:hidden">
@@ -257,15 +288,20 @@ export default function Header() {
 
           {/* Logo */}
           <Link to="/" className="flex shrink-0 items-center">
-            <img src={logo} alt="PCShop Logo" className={`w-auto object-contain transition-all duration-300 ${scrolled ? "h-8" : "h-10"}`} />
+            <img src={logo} alt="PCShop Logo" className="w-auto object-contain h-9" />
           </Link>
 
-          {/* Inline category button - visible only when scrolled */}
+          {/* Inline category button - always visible */}
           <div
-            ref={scrolled ? catRef : undefined}
-            className={`relative hidden transition-all duration-300 lg:block ${scrolled ? "opacity-100 w-auto" : "opacity-0 w-0 overflow-hidden pointer-events-none"}`}
-            onMouseEnter={() => { if (scrolled) setCatOpen(true); }}
-            onMouseLeave={() => { if (scrolled) { setCatOpen(false); setHoveredCat(null); } }}
+            ref={catRef}
+            className="relative hidden transition-all duration-300 lg:block"
+            onMouseEnter={() => {
+              cancelMenuClose();
+              setCatOpen(true);
+            }}
+            onMouseLeave={() => {
+              scheduleMenuClose();
+            }}
           >
             <button className="flex items-center gap-2 whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
               <List className="h-4 w-4" />
@@ -273,8 +309,21 @@ export default function Header() {
               <ChevronDown className={`h-3.5 w-3.5 transition-transform ${catOpen ? "rotate-180" : ""}`} />
             </button>
 
-            {/* Mega dropdown (scrolled mode) */}
-            {scrolled && megaMenuContent}
+            {/* Mega dropdown with safe hover zone */}
+            <>
+              {/* Invisible safe zone between button and menu */}
+              {catOpen && <div className="absolute left-0 top-full h-2 w-full" />}
+              
+              <div
+                onMouseEnter={() => {
+                  cancelMenuClose();
+                  setCatOpen(true);
+                }}
+                onMouseLeave={() => scheduleMenuClose()}
+              >
+                {megaMenuContent}
+              </div>
+            </>
           </div>
 
           {/* Search bar */}
@@ -286,21 +335,21 @@ export default function Header() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 placeholder="Tìm kiếm linh kiện..."
-                className={`w-full rounded-full border-border bg-muted/50 pl-10 pr-4 text-sm focus-visible:ring-primary transition-all duration-300 ${scrolled ? "h-9" : "h-10"}`}
+                className="w-full rounded-full border-border bg-muted/50 pl-10 pr-4 text-sm focus-visible:ring-primary h-9"
               />
             </form>
 
             {/* Search suggestions dropdown */}
             {searchFocused && searchSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[420px] overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[360px] overflow-y-auto rounded-lg border border-border bg-card shadow-xl">
                 {searchSuggestions.map((p) => (
                   <Link
                     key={p.id}
                     to={`/product/${p.id}`}
                     onClick={() => { setSearchFocused(false); setSearchQuery(""); }}
-                    className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-muted/50"
+                    className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted"
                   >
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 text-lg">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 text-lg">
                       <img
                         src={p.images?.[0]}
                         alt={p.name}
@@ -316,8 +365,8 @@ export default function Header() {
                       <span className="hidden h-full w-full items-center justify-center">{categoryEmoji[p.category] || "📦"}</span>
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-card-foreground">{p.name}</p>
-                      <p className="text-xs text-muted-foreground">{p.brand} · {Object.values(p.specs).slice(0, 2).join(", ")}</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{p.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{p.brand}</p>
                     </div>
                     <span className="shrink-0 text-sm font-bold text-primary">{formatPrice(p.price)}</span>
                   </Link>
@@ -400,33 +449,7 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Category nav bar - desktop only, visible only when NOT scrolled */}
-      {/* Full horizontal category bar with all categories + icons on primary background */}
-      <div
-        className={`hidden lg:block transition-all duration-300 overflow-hidden ${scrolled ? "max-h-0 opacity-0" : "max-h-20 opacity-100"}`}
-      >
-        <div className="bg-primary">
-          <div className="container mx-auto flex items-center px-4">
-            {/* All category links displayed horizontally */}
-            <nav className="flex flex-1 items-center justify-between overflow-hidden">
-              {categoryLinks.map((c) => (
-                <Link
-                  key={c.to}
-                  to={c.to}
-                  className="flex flex-1 items-center justify-center gap-2 whitespace-nowrap py-3 text-sm font-semibold text-primary-foreground/90 transition-colors hover:bg-primary-foreground/15 hover:text-primary-foreground"
-                >
-                  {c.img ? (
-                    <img src={c.img} alt={c.label} className="h-7 w-7 object-contain brightness-0 invert" />
-                  ) : (
-                    <Computer className="h-7 w-7" />
-                  )}
-                  {c.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </div>
-      </div>
+
     </header>
   );
 }
