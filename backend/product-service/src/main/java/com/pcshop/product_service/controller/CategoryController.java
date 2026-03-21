@@ -11,8 +11,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.concurrent.TimeUnit;
-
 import java.util.List;
 
 @RestController
@@ -26,7 +24,7 @@ public class CategoryController {
     public ResponseEntity<ApiResponse<List<Category>>> getAllCategories() {
         List<Category> categories = categoryService.getActiveCategories();
         return ResponseEntity.ok()
-            .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePublic())
+            .cacheControl(CacheControl.noStore().mustRevalidate())
             .body(ApiResponse.ok(categories));
     }
 

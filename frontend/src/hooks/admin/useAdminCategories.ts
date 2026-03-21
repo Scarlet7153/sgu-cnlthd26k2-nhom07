@@ -4,6 +4,7 @@ import axiosClient, { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClien
 export interface AdminCategorySubcategory {
   name: string;
   filter_query?: string;
+  filterQuery?: string;
 }
 
 export interface AdminCategory {
@@ -20,8 +21,19 @@ export interface CategoryRequest {
   code: string;
   name: string;
   is_active?: boolean;
+  isActive?: boolean;
   subcategory?: AdminCategorySubcategory[];
 }
+
+const toCategoryRequestPayload = (data: CategoryRequest) => ({
+  code: data.code,
+  name: data.name,
+  isActive: data.isActive ?? data.is_active,
+  subcategory: (data.subcategory || []).map((sub) => ({
+    name: sub.name,
+    filterQuery: sub.filterQuery ?? sub.filter_query ?? "",
+  })),
+});
 
 export function useAdminCategories() {
   return useQuery({
@@ -30,7 +42,16 @@ export function useAdminCategories() {
       try {
         const res: any = await axiosClient.get("/categories/all");
         const data = unwrapApiData<AdminCategory[]>(res) || [];
-        return data;
+
+        return data.map((cat: any) => ({
+          ...cat,
+          subcategory: Array.isArray(cat.subcategory)
+            ? cat.subcategory.map((sub: any) => ({
+                ...sub,
+                filter_query: sub?.filter_query ?? sub?.filterQuery ?? "",
+              }))
+            : [],
+        }));
       } catch (err) {
         console.error("Fetch categories error:", getApiErrorMessage(err));
         return [];
@@ -45,7 +66,7 @@ export function useCreateCategory() {
 
   return useMutation({
     mutationFn: async (data: CategoryRequest) => {
-      const res: any = await axiosClient.post("/categories", data);
+      const res: any = await axiosClient.post("/categories", toCategoryRequestPayload(data));
       return unwrapApiData<AdminCategory>(res);
     },
     onSuccess: () => {
@@ -60,7 +81,7 @@ export function useUpdateCategory() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: CategoryRequest }) => {
-      const res: any = await axiosClient.put(`/categories/${id}`, data);
+      const res: any = await axiosClient.put(`/categories/${id}`, toCategoryRequestPayload(data));
       return unwrapApiData<AdminCategory>(res);
     },
     onSuccess: () => {

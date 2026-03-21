@@ -105,7 +105,7 @@ export default function AdminCategories() {
         subcategory: cat.subcategory
           ? cat.subcategory.map((s) => ({
               name: s.name,
-              filter_query: s.filter_query || "",
+              filter_query: s.filter_query ?? s.filterQuery ?? "",
             }))
           : [],
       });
@@ -423,7 +423,7 @@ export default function AdminCategories() {
                                   <span
                                     key={idx}
                                     className="inline-flex items-center rounded border px-1.5 py-0.5 text-xs text-gray-600"
-                                    title={sub.filter_query || ""}
+                                    title={sub.filter_query ?? sub.filterQuery ?? ""}
                                   >
                                     {sub.name}
                                   </span>

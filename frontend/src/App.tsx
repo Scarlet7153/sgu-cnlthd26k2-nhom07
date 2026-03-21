@@ -34,6 +34,7 @@ const AboutPage = lazy(() => import("./pages/AboutPage"));
 const ContactPage = lazy(() => import("./pages/ContactPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
+// Admin pages
 const AdminLayout = lazy(() => import("./components/layout/AdminLayout"));
 const AdminLoginPage = lazy(() => import("./pages/admin/AdminLoginPage"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
@@ -53,12 +54,15 @@ function PageFallback() {
 }
 
 function AppRoutes() {
-  const queryClient = useQueryClient();
   const location = useLocation();
+  const queryClient = useQueryClient();
+  
+  // Check if current route is admin
   const isAdminRoute = location.pathname.startsWith("/admin");
 
   // Prefetch categories and brands on app startup
   useEffect(() => {
+    // Prefetch categories for Header and menus
     queryClient.prefetchQuery({
       queryKey: ["categories-menu"],
       queryFn: async () => {
@@ -67,9 +71,10 @@ function AppRoutes() {
         const data = await response.json();
         return data.data || [];
       },
-      staleTime: 10 * 60 * 1000,
+      staleTime: 10 * 60 * 1000, // 10 minutes
     });
 
+    // Prefetch brands for product filters
     queryClient.prefetchQuery({
       queryKey: ["brands"],
       queryFn: async () => {
@@ -78,14 +83,14 @@ function AppRoutes() {
         const data = await response.json();
         return data.data || [];
       },
-      staleTime: 5 * 60 * 1000,
+      staleTime: 5 * 60 * 1000, // 5 minutes
     });
   }, [queryClient]);
 
   return (
     <div className="flex min-h-screen flex-col">
       {!isAdminRoute && <Header />}
-      <main className="flex-1">
+      <main className={!isAdminRoute ? "flex-1" : ""}>
         <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -107,6 +112,8 @@ function AppRoutes() {
             <Route path="/payment/result" element={<ProtectedRoute><PaymentResultPage /></ProtectedRoute>} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />
+
+            {/* Admin Routes */}
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
               <Route index element={<AdminDashboard />} />
@@ -115,6 +122,7 @@ function AppRoutes() {
               <Route path="users" element={<AdminUsers />} />
               <Route path="categories" element={<AdminCategories />} />
             </Route>
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

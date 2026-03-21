@@ -5,6 +5,8 @@ export interface AdminUser {
   id: string;
   email: string;
   fullName: string;
+  name?: string;
+  username?: string;
   phone?: string;
   role: string;
   status: string;
@@ -28,14 +30,38 @@ export function useAdminUsers({
   page?: number;
   size?: number;
 } = {}) {
+  const normalizeUser = (u: any): AdminUser => {
+    const fullName =
+      u?.fullName ??
+      u?.fullname ??
+      u?.name ??
+      u?.full_name ??
+      u?.username ??
+      "";
+
+    return {
+      ...u,
+      id: String(u?.id ?? u?._id?.$oid ?? u?._id ?? ""),
+      email: String(u?.email ?? ""),
+      fullName: String(fullName),
+      name: u?.name,
+      username: u?.username,
+      phone: u?.phone ?? u?.phoneNumber ?? "",
+      role: String(u?.role ?? "USER"),
+      status: String(u?.status ?? "active"),
+      createdAt: u?.createdAt ?? u?.created_at,
+    };
+  };
+
   return useQuery({
     queryKey: ["admin-users", { page, size }],
     queryFn: async () => {
       try {
         const res: any = await axiosClient.get(`/users?page=${page}&size=${size}`);
         const data = unwrapApiData(res) || {};
+        const content = (data?.content || data?.data || []).map(normalizeUser);
         return {
-          content: data?.content || data?.data || [],
+          content,
           totalElements: data?.totalElements || 0,
           totalPages: data?.totalPages || 1,
           number: data?.number || 0,

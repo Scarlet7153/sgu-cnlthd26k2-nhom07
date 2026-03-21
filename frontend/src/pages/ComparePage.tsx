@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { X, Plus, RotateCcw, Search, ChevronRight, Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useProducts } from "@/hooks/useProducts";
-import { categories } from "@/data/categories";
+import { useCategories } from "@/hooks/useCategories";
 import { CategoryType, Product } from "@/types/product.types";
 import { formatPrice } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -248,6 +248,7 @@ const categoryFilterSpecs: Record<string, FilterSpecConfig[]> = {
 export default function ComparePage() {
   document.title = "So sánh sản phẩm - PCShop";
   const { data: productsData, isLoading } = useProducts({ size: 500, fetchAll: true });
+  const { data: menuCategories = [] } = useCategories();
   const products = productsData?.content || [];
 
   const [compareIds, setCompareIds] = useState<string[]>(() => {
@@ -273,9 +274,9 @@ export default function ComparePage() {
 
   const lockedCategoryName = useMemo(() => {
     if (!lockedCategory) return "";
-    const cat = categories.find((c) => c.id === lockedCategory);
+    const cat = menuCategories.find((c) => c.id === lockedCategory);
     return cat ? cat.name : lockedCategory;
-  }, [lockedCategory]);
+  }, [lockedCategory, menuCategories]);
 
   const addToCompare = (id: string) => {
     if (compareIds.length >= 4) return;
@@ -340,9 +341,9 @@ export default function ComparePage() {
 
   const categoryOptions = useMemo(() => {
     const base = products.filter((p) => !compareIds.includes(p.id));
-    return categories
+    return menuCategories
       .map((c) => ({ id: c.id, name: c.name, count: base.filter((p) => p.category === c.id).length }));
-  }, [products, compareIds]);
+  }, [products, compareIds, menuCategories]);
 
   // All products available for the dialog (same category or all)
   const allDialogProducts = useMemo(() => {

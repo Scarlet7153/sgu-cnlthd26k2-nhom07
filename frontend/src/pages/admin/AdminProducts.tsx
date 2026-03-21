@@ -138,19 +138,48 @@ export default function AdminProducts() {
   const htmlToDescriptionText = (html: string | undefined): string => {
     if (!html) return "";
     const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-    const rows = doc.querySelectorAll("tr");
-    const lines: string[] = [];
-    for (const row of rows) {
-      const th = row.querySelector("th");
-      const td = row.querySelector("td");
-      if (th && td) {
-        const key = th.textContent?.trim() || "";
-        const value = td.innerHTML.replace(/<br\s*\/?>/g, "\n").trim();
-        lines.push(`${key}\t${value}`);
+
+    // Decode once in case DB stores escaped HTML like &lt;table&gt;...&lt;/table&gt;.
+    const decoded = (() => {
+      const doc = parser.parseFromString(html, "text/html");
+      return doc.documentElement.textContent || html;
+    })();
+
+    const parseToLines = (source: string): string[] => {
+      const doc = parser.parseFromString(source, "text/html");
+      const rows = Array.from(doc.querySelectorAll("tr"));
+      const lines: string[] = [];
+
+      for (const row of rows) {
+        const headerCell = row.querySelector("th");
+        const dataCells = row.querySelectorAll("td");
+
+        if (headerCell && dataCells[0]) {
+          const key = headerCell.textContent?.trim() || "";
+          const value = dataCells[0].textContent?.trim() || "";
+          if (key) lines.push(`${key}\t${value}`);
+          continue;
+        }
+
+        if (dataCells.length >= 2) {
+          const key = dataCells[0].textContent?.trim() || "";
+          const value = dataCells[1].textContent?.trim() || "";
+          if (key) lines.push(`${key}\t${value}`);
+        }
       }
-    }
-    return lines.join("\n");
+
+      return lines;
+    };
+
+    const directLines = parseToLines(html);
+    if (directLines.length > 0) return directLines.join("\n");
+
+    const decodedLines = parseToLines(decoded);
+    if (decodedLines.length > 0) return decodedLines.join("\n");
+
+    // Fallback for non-table HTML/text to avoid showing blank in edit form.
+    const fallbackDoc = parser.parseFromString(decoded, "text/html");
+    return fallbackDoc.body.textContent?.trim() || "";
   };
 
   const getProductId = (product: any): string => {
@@ -163,27 +192,34 @@ export default function AdminProducts() {
   const handleOpenDialog = (product?: any) => {
     if (product) {
       setEditingProduct(product);
+      // Extract categoryId from various possible formats
       const catId = product.categoryId?.$oid || product.categoryId?.$id || product.categoryId;
       const resolvedCatId = typeof catId === "string" ? catId : (catId && typeof catId === "object" && "$oid" in catId) ? catId.$oid : "";
+
       setFormData({
         name: product.name ?? "",
         model: product.model ?? "",
         url: product.url ?? "",
-        price: product.price ?? "",
+        price: product.price ?? 0,
         image: product.image ?? "",
         categoryId: resolvedCatId,
         socket: product.socket != null ? String(product.socket) : "",
-        ram_type: Array.isArray(product.ram_type) ? product.ram_type : [],
-        has_igpu: Boolean(product.has_igpu),
-        igpu_name: product.igpu_name ?? "",
-        tdp_w: product.tdp_w ?? "",
-        cores: product.cores ?? "",
-        threads: product.threads ?? "",
-        base_clock_ghz: product.base_clock_ghz ?? "",
-        boost_clock_ghz: product.boost_clock_ghz ?? "",
+        ram_type: Array.isArray(product.ramType) ? product.ramType : Array.isArray(product.ram_type) ? product.ram_type : [],
+        has_igpu: Boolean(product.hasIgpu ?? product.has_igpu ?? false),
+        igpu_name: product.igpuName ?? product.igpu_name ?? "",
+        tdp_w: product.tdpW ?? product.tdp_w ?? 0,
+        cores: product.cores ?? 0,
+        threads: product.threads ?? 0,
+        base_clock_ghz: product.baseClockGhz ?? product.base_clock_ghz ?? 0,
+        boost_clock_ghz: product.boostClockGhz ?? product.boost_clock_ghz ?? 0,
       });
-      setSpecsEntries(specsToEntries(product.specs_raw));
-      setDescriptionText(htmlToDescriptionText(product.description_html));
+
+      const specsRaw = product.specsRaw ?? product.specs_raw ?? {};
+      setSpecsEntries(specsToEntries(specsRaw));
+
+      // Try both camelCase and snake_case
+      const descriptionHtml = product.descriptionHtml ?? product.description_html ?? "";
+      setDescriptionText(htmlToDescriptionText(descriptionHtml));
     } else {
       setEditingProduct(null);
       setFormData({
@@ -226,18 +262,19 @@ export default function AdminProducts() {
   };
 
   const handleSubmit = async () => {
+    // Validation: check required fields (use != null for numbers to allow 0)
     if (
       !formData.name ||
-      !formData.price ||
+      formData.price == null ||
       !formData.categoryId ||
       !formData.model ||
       !formData.socket ||
       !formData.image ||
-      !formData.cores ||
-      !formData.threads ||
-      !formData.base_clock_ghz ||
-      !formData.boost_clock_ghz ||
-      !formData.tdp_w ||
+      formData.cores == null ||
+      formData.threads == null ||
+      formData.base_clock_ghz == null ||
+      formData.boost_clock_ghz == null ||
+      formData.tdp_w == null ||
       (formData.has_igpu && !formData.igpu_name)
     ) {
       toast({
@@ -252,20 +289,20 @@ export default function AdminProducts() {
       name: formData.name,
       model: formData.model,
       url: formData.url,
-      price: Number(formData.price) || 0,
+      price: Number(formData.price),
       image: formData.image,
       categoryId: formData.categoryId,
-      socket: Number(formData.socket) || 0,
-      ram_type: formData.ram_type?.length ? formData.ram_type : undefined,
-      has_igpu: formData.has_igpu,
-      igpu_name: formData.has_igpu ? formData.igpu_name : undefined,
-      tdp_w: Number(formData.tdp_w) || 0,
-      cores: Number(formData.cores) || 0,
-      threads: Number(formData.threads) || 0,
-      base_clock_ghz: Number(formData.base_clock_ghz) || 0,
-      boost_clock_ghz: Number(formData.boost_clock_ghz) || 0,
-      specs_raw: entriesToSpecs(specsEntries),
-      description_html: textToDescriptionHtml(descriptionText),
+      socket: formData.socket || "",
+      ramType: formData.ram_type?.length ? formData.ram_type : undefined,
+      hasIgpu: formData.has_igpu,
+      igpuName: formData.has_igpu ? formData.igpu_name : undefined,
+      tdpW: Number(formData.tdp_w),
+      cores: Number(formData.cores),
+      threads: Number(formData.threads),
+      baseClockGhz: Number(formData.base_clock_ghz),
+      boostClockGhz: Number(formData.boost_clock_ghz),
+      specsRaw: entriesToSpecs(specsEntries),
+      descriptionHtml: textToDescriptionHtml(descriptionText),
     };
 
     try {
@@ -378,8 +415,8 @@ export default function AdminProducts() {
                   <Input
                     type="number"
                     placeholder="Nhập giá"
-                    value={formData.price != null ? formData.price : ""}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.price ?? ""}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -407,8 +444,8 @@ export default function AdminProducts() {
                   <Input
                     type="number"
                     placeholder="Nhập số nhân"
-                    value={formData.cores != null ? formData.cores : ""}
-                    onChange={(e) => setFormData({ ...formData, cores: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.cores ?? ""}
+                    onChange={(e) => setFormData({ ...formData, cores: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -416,8 +453,8 @@ export default function AdminProducts() {
                   <Input
                     type="number"
                     placeholder="Nhập số luồng"
-                    value={formData.threads != null ? formData.threads : ""}
-                    onChange={(e) => setFormData({ ...formData, threads: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.threads ?? ""}
+                    onChange={(e) => setFormData({ ...formData, threads: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -426,8 +463,8 @@ export default function AdminProducts() {
                     type="number"
                     step="0.1"
                     placeholder="Nhập xung cơ bản"
-                    value={formData.base_clock_ghz != null ? formData.base_clock_ghz : ""}
-                    onChange={(e) => setFormData({ ...formData, base_clock_ghz: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.base_clock_ghz ?? ""}
+                    onChange={(e) => setFormData({ ...formData, base_clock_ghz: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -436,8 +473,8 @@ export default function AdminProducts() {
                     type="number"
                     step="0.1"
                     placeholder="Nhập xung boost"
-                    value={formData.boost_clock_ghz != null ? formData.boost_clock_ghz : ""}
-                    onChange={(e) => setFormData({ ...formData, boost_clock_ghz: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.boost_clock_ghz ?? ""}
+                    onChange={(e) => setFormData({ ...formData, boost_clock_ghz: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
               </div>
@@ -448,8 +485,8 @@ export default function AdminProducts() {
                   <Input
                     type="number"
                     placeholder="Nhập TDP"
-                    value={formData.tdp_w != null ? formData.tdp_w : ""}
-                    onChange={(e) => setFormData({ ...formData, tdp_w: e.target.value ? Number(e.target.value) : "" })}
+                    value={formData.tdp_w ?? ""}
+                    onChange={(e) => setFormData({ ...formData, tdp_w: e.target.value ? Number(e.target.value) : 0 })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -692,13 +729,13 @@ export default function AdminProducts() {
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 {viewProduct.socket && <div><span className="text-gray-500">Socket:</span> {viewProduct.socket}</div>}
-                {viewProduct.cores && <div><span className="text-gray-500">Nhân:</span> {viewProduct.cores}</div>}
-                {viewProduct.threads && <div><span className="text-gray-500">Luồng:</span> {viewProduct.threads}</div>}
-                {viewProduct.base_clock_ghz && <div><span className="text-gray-500">Xung cơ bản:</span> {viewProduct.base_clock_ghz} GHz</div>}
-                {viewProduct.boost_clock_ghz && <div><span className="text-gray-500">Xung boost:</span> {viewProduct.boost_clock_ghz} GHz</div>}
-                {viewProduct.tdp_w && <div><span className="text-gray-500">TDP:</span> {viewProduct.tdp_w}W</div>}
+                {viewProduct.cores != null && <div><span className="text-gray-500">Nhân:</span> {viewProduct.cores}</div>}
+                {viewProduct.threads != null && <div><span className="text-gray-500">Luồng:</span> {viewProduct.threads}</div>}
+                {viewProduct.base_clock_ghz != null && <div><span className="text-gray-500">Xung cơ bản:</span> {viewProduct.base_clock_ghz} GHz</div>}
+                {viewProduct.boost_clock_ghz != null && <div><span className="text-gray-500">Xung boost:</span> {viewProduct.boost_clock_ghz} GHz</div>}
+                {viewProduct.tdp_w != null && <div><span className="text-gray-500">TDP:</span> {viewProduct.tdp_w}W</div>}
                 {viewProduct.ram_type?.length > 0 && <div><span className="text-gray-500">RAM:</span> {viewProduct.ram_type.join(", ")}</div>}
-                {viewProduct.igpu_name && <div><span className="text-gray-500">iGPU:</span> {viewProduct.igpu_name}</div>}
+                {(viewProduct.igpu_name || viewProduct.hasIgpu || viewProduct.has_igpu) && <div><span className="text-gray-500">iGPU:</span> {viewProduct.igpu_name || "Có"}</div>}
               </div>
 
               {viewProduct.specs_raw && Object.keys(viewProduct.specs_raw).length > 0 && (

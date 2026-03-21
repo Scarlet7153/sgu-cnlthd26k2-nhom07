@@ -29,6 +29,12 @@ public class Account {
 
     private String name;
 
+    @Field("fullname")
+    private String fullName;
+
+    @Field("fullName")
+    private String fullNameCamel;
+
     @Indexed(unique = true)
     private String email;
 

@@ -2,6 +2,7 @@ package com.pcshop.product_service.service;
 
 import com.pcshop.product_service.dto.request.ProductRequest;
 import com.pcshop.product_service.exception.ResourceNotFoundException;
+import com.pcshop.product_service.model.Category;
 import com.pcshop.product_service.model.Product;
 import com.pcshop.product_service.repository.CategoryRepository;
 import com.pcshop.product_service.repository.ProductRepository;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -35,13 +37,39 @@ public class ProductService {
     private volatile long brandsCacheTTL = 0;
     private static final long CACHE_TTL_MILLIS = 5 * 60 * 1000; // 5 minutes
 
-    public Page<Product> getAllProducts(Pageable pageable) {
-        return productRepository.findAll(pageable);
+    public Page<Product> getAllProducts(Pageable pageable, boolean includeInactiveCategory) {
+        if (includeInactiveCategory) {
+            return productRepository.findAll(pageable);
+        }
+
+        List<ObjectId> activeCategoryIds = getActiveCategoryIds();
+        if (activeCategoryIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        Query query = new Query(Criteria.where("categoryId").in(activeCategoryIds));
+        long total = mongoTemplate.count(query, Product.class);
+        query.with(pageable);
+        List<Product> content = mongoTemplate.find(query, Product.class);
+        return new PageImpl<>(content, pageable, total);
     }
 
     public Product getProductById(String id) {
         return productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", "id", id));
+    }
+
+    public Product getProductById(String id, boolean includeInactiveCategory) {
+        Product product = getProductById(id);
+        if (includeInactiveCategory) {
+            return product;
+        }
+
+        if (!isCategoryActive(product.getCategoryId())) {
+            throw new ResourceNotFoundException("Product", "id", id);
+        }
+
+        return product;
     }
 
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable) {
@@ -50,6 +78,22 @@ public class ProductService {
         }
         try {
             return productRepository.findByCategoryId(new ObjectId(categoryId), pageable);
+        } catch (IllegalArgumentException e) {
+            return Page.empty(pageable);
+        }
+    }
+
+    public Page<Product> getProductsByCategory(String categoryId, Pageable pageable, boolean includeInactiveCategory) {
+        if (categoryId == null || categoryId.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        try {
+            ObjectId catId = new ObjectId(categoryId);
+            if (!includeInactiveCategory && !isCategoryActive(catId)) {
+                return Page.empty(pageable);
+            }
+            return productRepository.findByCategoryId(catId, pageable);
         } catch (IllegalArgumentException e) {
             return Page.empty(pageable);
         }
@@ -103,12 +147,81 @@ public class ProductService {
         return new PageImpl<>(content, pageable, total);
     }
 
+    public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        List<String> tokens = Arrays.stream(keyword.trim().split("\\s+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .limit(6)
+                .collect(Collectors.toList());
+
+        if (tokens.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        String lookAheadRegex = tokens.stream()
+                .map(token -> "(?=.*" + Pattern.quote(token) + ")")
+                .collect(Collectors.joining("", "", ".*"));
+
+        Criteria searchCriteria = new Criteria().orOperator(
+                Criteria.where("name").regex(lookAheadRegex, "i"),
+                Criteria.where("model").regex(lookAheadRegex, "i"),
+                Criteria.where("socket").regex(lookAheadRegex, "i")
+        );
+
+        List<Criteria> allCriteria = new java.util.ArrayList<>();
+        allCriteria.add(searchCriteria);
+
+        if (categoryId != null && !categoryId.trim().isEmpty()) {
+            try {
+                ObjectId catId = new ObjectId(categoryId);
+                if (!includeInactiveCategory && !isCategoryActive(catId)) {
+                    return Page.empty(pageable);
+                }
+                allCriteria.add(Criteria.where("categoryId").is(catId));
+            } catch (IllegalArgumentException e) {
+                return Page.empty(pageable);
+            }
+        } else if (!includeInactiveCategory) {
+            List<ObjectId> activeCategoryIds = getActiveCategoryIds();
+            if (activeCategoryIds.isEmpty()) {
+                return Page.empty(pageable);
+            }
+            allCriteria.add(Criteria.where("categoryId").in(activeCategoryIds));
+        }
+
+        Query query = new Query(new Criteria().andOperator(allCriteria.toArray(new Criteria[0])));
+        long total = mongoTemplate.count(query, Product.class);
+        query.with(pageable);
+        List<Product> content = mongoTemplate.find(query, Product.class);
+
+        return new PageImpl<>(content, pageable, total);
+    }
+
     public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable) {
         if (categoryId == null || categoryId.trim().isEmpty()) {
             return Page.empty(pageable);
         }
         try {
             return productRepository.findByCategoryAndPriceRange(new ObjectId(categoryId), minPrice, maxPrice, pageable);
+        } catch (IllegalArgumentException e) {
+            return Page.empty(pageable);
+        }
+    }
+
+    public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable, boolean includeInactiveCategory) {
+        if (categoryId == null || categoryId.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+        try {
+            ObjectId catId = new ObjectId(categoryId);
+            if (!includeInactiveCategory && !isCategoryActive(catId)) {
+                return Page.empty(pageable);
+            }
+            return productRepository.findByCategoryAndPriceRange(catId, minPrice, maxPrice, pageable);
         } catch (IllegalArgumentException e) {
             return Page.empty(pageable);
         }
@@ -138,6 +251,7 @@ public class ProductService {
                     .baseClockGhz(request.getBaseClockGhz())
                     .boostClockGhz(request.getBoostClockGhz())
                     .specsRaw(request.getSpecsRaw())
+                    .descriptionHtml(request.getDescriptionHtml())
                     .build();
 
             product = productRepository.save(product);
@@ -176,6 +290,7 @@ public class ProductService {
         if (request.getBaseClockGhz() != null) product.setBaseClockGhz(request.getBaseClockGhz());
         if (request.getBoostClockGhz() != null) product.setBoostClockGhz(request.getBoostClockGhz());
         if (request.getSpecsRaw() != null) product.setSpecsRaw(request.getSpecsRaw());
+        if (request.getDescriptionHtml() != null) product.setDescriptionHtml(request.getDescriptionHtml());
 
         product = productRepository.save(product);
         return product;
@@ -241,6 +356,65 @@ public class ProductService {
         List<Product> content = mongoTemplate.find(query, Product.class);
 
         return new PageImpl<>(content, pageable, total);
+    }
+
+    public Page<Product> searchBySpec(String specField, String specValue, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
+        if (specValue == null || specValue.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        Query query;
+        if (categoryId != null && !categoryId.trim().isEmpty()) {
+            try {
+                ObjectId catId = new ObjectId(categoryId);
+                if (!includeInactiveCategory && !isCategoryActive(catId)) {
+                    return Page.empty(pageable);
+                }
+                query = new Query(new Criteria().andOperator(
+                        Criteria.where("categoryId").is(catId),
+                        Criteria.where("specs_raw." + specField).is(specValue)
+                ));
+            } catch (IllegalArgumentException e) {
+                return Page.empty(pageable);
+            }
+        } else {
+            if (!includeInactiveCategory) {
+                List<ObjectId> activeCategoryIds = getActiveCategoryIds();
+                if (activeCategoryIds.isEmpty()) {
+                    return Page.empty(pageable);
+                }
+                query = new Query(new Criteria().andOperator(
+                        Criteria.where("categoryId").in(activeCategoryIds),
+                        Criteria.where("specs_raw." + specField).is(specValue)
+                ));
+            } else {
+                query = new Query(Criteria.where("specs_raw." + specField).is(specValue));
+            }
+        }
+
+        long total = mongoTemplate.count(query, Product.class);
+        query.with(pageable);
+        List<Product> content = mongoTemplate.find(query, Product.class);
+
+        return new PageImpl<>(content, pageable, total);
+    }
+
+    private List<ObjectId> getActiveCategoryIds() {
+        return categoryRepository.findByIsActive(true).stream()
+                .map(Category::getId)
+                .filter(ObjectId::isValid)
+                .map(ObjectId::new)
+                .collect(Collectors.toList());
+    }
+
+    private boolean isCategoryActive(ObjectId categoryId) {
+        if (categoryId == null) {
+            return false;
+        }
+
+        return categoryRepository.findById(categoryId.toHexString())
+                .map(category -> Boolean.TRUE.equals(category.getIsActive()))
+                .orElse(false);
     }
 
 }

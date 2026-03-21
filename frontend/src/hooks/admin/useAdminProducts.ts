@@ -4,6 +4,7 @@ import axiosClient, { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClien
 export interface AdminProduct {
   id: string;
   name: string;
+  model?: string;
   categoryId?: string;
   categoryID?: string;
   category?: any;
@@ -13,9 +14,11 @@ export interface AdminProduct {
   brand?: string;
   stock?: number;
   description?: string;
+  descriptionHtml?: string;
   socket?: string;
   ramType?: string[];
   hasIgpu?: boolean;
+  igpuName?: string;
   tdpW?: number;
   cores?: number;
   threads?: number;
@@ -43,6 +46,7 @@ export interface ProductRequest {
   baseClockGhz?: number;
   boostClockGhz?: number;
   specsRaw?: Record<string, any>;
+  descriptionHtml?: string;
 }
 
 interface ProductsResponse {
@@ -68,14 +72,14 @@ export function useAdminProducts({
     queryKey: ["admin-products", { page, size, keyword, categoryId }],
     queryFn: async () => {
       try {
-        let endpoint = `/products?page=${page}&size=${size}`;
+        let endpoint = `/products?page=${page}&size=${size}&includeInactiveCategory=true`;
         if (keyword) {
-          endpoint = `/products/search?keyword=${encodeURIComponent(keyword)}&page=${page}&size=${size}`;
+          endpoint = `/products/search?keyword=${encodeURIComponent(keyword)}&page=${page}&size=${size}&includeInactiveCategory=true`;
           if (categoryId) {
             endpoint += `&categoryId=${categoryId}`;
           }
         } else if (categoryId) {
-          endpoint = `/products/category/${encodeURIComponent(categoryId.toUpperCase())}?page=${page}&size=${size}`;
+          endpoint = `/products/category/${encodeURIComponent(categoryId.toUpperCase())}?page=${page}&size=${size}&includeInactiveCategory=true`;
         }
 
         const res: any = await axiosClient.get(endpoint);

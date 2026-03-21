@@ -39,6 +39,8 @@ public class UserService {
 
         if (StringUtils.hasText(request.getFullName())) {
             account.setName(request.getFullName());
+            account.setFullName(request.getFullName());
+            account.setFullNameCamel(request.getFullName());
         }
         if (StringUtils.hasText(request.getEmail())) {
             // Check email unique
@@ -117,10 +119,16 @@ public class UserService {
     }
 
     private UserResponse toUserResponse(Account account) {
+        String displayName = StringUtils.hasText(account.getName())
+            ? account.getName()
+                : (StringUtils.hasText(account.getFullName())
+                    ? account.getFullName()
+                    : (StringUtils.hasText(account.getFullNameCamel()) ? account.getFullNameCamel() : account.getUsername()));
+
         return UserResponse.builder()
                 .id(account.getId())
                 .username(account.getUsername())
-                .name(account.getName())
+            .name(displayName)
                 .email(account.getEmail())
                 .phone(account.getPhone())
                 .role(account.getRole())

@@ -32,4 +32,5 @@ public class ProductRequest {
     private Double baseClockGhz;
     private Double boostClockGhz;
     private Map<String, Object> specsRaw;
+    private String descriptionHtml;
 }

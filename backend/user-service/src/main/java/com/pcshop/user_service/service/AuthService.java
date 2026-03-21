@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -56,6 +57,8 @@ public class AuthService {
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
+            .fullName(request.getName())
+            .fullNameCamel(request.getName())
                 .email(request.getEmail().toLowerCase())
                 .phone(request.getPhone())
                 .addressDetails(addressDetails)
@@ -131,10 +134,16 @@ public class AuthService {
     }
 
     private UserResponse toUserResponse(Account account) {
+        String displayName = StringUtils.hasText(account.getName())
+            ? account.getName()
+                : (StringUtils.hasText(account.getFullName())
+                    ? account.getFullName()
+                    : (StringUtils.hasText(account.getFullNameCamel()) ? account.getFullNameCamel() : account.getUsername()));
+
         return UserResponse.builder()
                 .id(account.getId())
                 .username(account.getUsername())
-                .name(account.getName())
+            .name(displayName)
                 .email(account.getEmail())
                 .phone(account.getPhone())
                 .role(account.getRole())

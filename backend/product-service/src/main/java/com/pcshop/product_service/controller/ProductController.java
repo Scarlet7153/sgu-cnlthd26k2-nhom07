@@ -34,6 +34,7 @@ public class ProductController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Long minPrice,
             @RequestParam(required = false) Long maxPrice,
+            @RequestParam(defaultValue = "false") boolean includeInactiveCategory,
             // Additional filters for subcategories
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String efficiency,
@@ -48,13 +49,13 @@ public class ProductController {
             // Case 1: Search + Category filter
             if (keyword != null && !keyword.trim().isEmpty() && category != null && !category.trim().isEmpty()) {
                 String categoryId = resolveCategoryCode(category);
-                Page<Product> products = productService.searchProducts(keyword, categoryId, pageable);
+                Page<Product> products = productService.searchProducts(keyword, categoryId, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 2: Only search
             if (keyword != null && !keyword.trim().isEmpty()) {
-                Page<Product> products = productService.searchProducts(keyword, null, pageable);
+                Page<Product> products = productService.searchProducts(keyword, null, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
@@ -63,40 +64,40 @@ public class ProductController {
                 String categoryId = resolveCategoryCode(category);
                 long min = minPrice != null ? minPrice : 0L;
                 long max = maxPrice != null ? maxPrice : 999999999L;
-                Page<Product> products = productService.filterByPriceRange(categoryId, min, max, pageable);
+                Page<Product> products = productService.filterByPriceRange(categoryId, min, max, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 4: Type filter (e.g., RAM subcategories: DDR5, DDR4, DDR3)
             if (type != null && !type.trim().isEmpty()) {
                 String categoryId = resolveCategoryCode("RAM");
-                Page<Product> products = productService.searchBySpec("type", type, categoryId, pageable);
+                Page<Product> products = productService.searchBySpec("type", type, categoryId, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 5: Efficiency filter (e.g., PSU subcategories)
             if (efficiency != null && !efficiency.trim().isEmpty()) {
                 String categoryId = resolveCategoryCode("PSU");
-                Page<Product> products = productService.searchBySpec("efficiency", efficiency, categoryId, pageable);
+                Page<Product> products = productService.searchBySpec("efficiency", efficiency, categoryId, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 6: Case type filter (e.g., CASE subcategories)
             if (case_type != null && !case_type.trim().isEmpty()) {
                 String categoryId = resolveCategoryCode("CASE");
-                Page<Product> products = productService.searchBySpec("case_type", case_type, categoryId, pageable);
+                Page<Product> products = productService.searchBySpec("case_type", case_type, categoryId, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 7: Cooler type filter (e.g., COOLER subcategories)
             if (cooler_type != null && !cooler_type.trim().isEmpty()) {
                 String categoryId = resolveCategoryCode("COOLER");
-                Page<Product> products = productService.searchBySpec("cooler_type", cooler_type, categoryId, pageable);
+                Page<Product> products = productService.searchBySpec("cooler_type", cooler_type, categoryId, pageable, includeInactiveCategory);
                 return ResponseEntity.ok(ApiResponse.ok(products));
             }
             
             // Case 8: No filters - return all
-            Page<Product> products = productService.getAllProducts(pageable);
+            Page<Product> products = productService.getAllProducts(pageable, includeInactiveCategory);
             return ResponseEntity.ok(ApiResponse.ok(products));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.ok(ApiResponse.ok(Page.empty(pageable)));
@@ -119,14 +120,17 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<Product>> getProductById(@PathVariable String id) {
-        Product product = productService.getProductById(id);
+    public ResponseEntity<ApiResponse<Product>> getProductById(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "false") boolean includeInactiveCategory) {
+        Product product = productService.getProductById(id, includeInactiveCategory);
         return ResponseEntity.ok(ApiResponse.ok(product));
     }
 
     @GetMapping("/category/{code}")
     public ResponseEntity<ApiResponse<Page<Product>>> getProductsByCategory(
             @PathVariable String code,
+            @RequestParam(defaultValue = "false") boolean includeInactiveCategory,
             @PageableDefault(size = 20) Pageable pageable) {
         // Try to resolve category code to its DB id; if resolution fails, treat the path variable as an id
         String categoryId;
@@ -136,7 +140,7 @@ public class ProductController {
             categoryId = code;
         }
 
-        Page<Product> products = productService.getProductsByCategory(categoryId, pageable);
+        Page<Product> products = productService.getProductsByCategory(categoryId, pageable, includeInactiveCategory);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
@@ -144,8 +148,9 @@ public class ProductController {
     public ResponseEntity<ApiResponse<Page<Product>>> searchProducts(
             @RequestParam String keyword,
             @RequestParam(required = false) String categoryId,
+            @RequestParam(defaultValue = "false") boolean includeInactiveCategory,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.searchProducts(keyword, categoryId, pageable);
+        Page<Product> products = productService.searchProducts(keyword, categoryId, pageable, includeInactiveCategory);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 
@@ -154,8 +159,9 @@ public class ProductController {
             @RequestParam String categoryId,
             @RequestParam(defaultValue = "0") Long minPrice,
             @RequestParam(defaultValue = "999999999") Long maxPrice,
+            @RequestParam(defaultValue = "false") boolean includeInactiveCategory,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<Product> products = productService.filterByPriceRange(categoryId, minPrice, maxPrice, pageable);
+        Page<Product> products = productService.filterByPriceRange(categoryId, minPrice, maxPrice, pageable, includeInactiveCategory);
         return ResponseEntity.ok(ApiResponse.ok(products));
     }
 

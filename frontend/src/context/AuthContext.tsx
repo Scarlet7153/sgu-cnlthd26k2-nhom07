@@ -28,6 +28,8 @@ interface BackendAccount {
   name?: string;
   phone?: string;
   role?: string;
+  username?: string;
+  status?: string;
 }
 
 interface LoginPayload {
@@ -35,6 +37,10 @@ interface LoginPayload {
   token?: string;
   account?: BackendAccount;
   user?: BackendAccount;
+  data?: {
+    account?: BackendAccount;
+    user?: BackendAccount;
+  };
 }
 
 interface SignUpResult {
@@ -84,15 +90,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const raw: any = await axiosClient.post("/auth/login", { email, password });
       const authData = unwrapApiData<LoginPayload>(raw);
-      const account = authData?.account || authData?.user;
+      
+      // Backend trả về: { data: { accessToken, refreshToken, user: {...} } }
+      // Hoặc: { accessToken, refreshToken, user: {...} }
+      const accessToken = authData?.accessToken || authData?.data?.accessToken;
+      const userFromBackend = authData?.user || authData?.account || authData?.data?.user || authData?.data?.account;
 
-      const loggedUser: User = { 
-        id: account?.id || account?._id || "",
-        email: account?.email || email,
-        name: account?.fullName || account?.name || account?.email,
-        phone: account?.phone,
-        role: account?.role || "USER",
-        token: authData?.accessToken || authData?.token || ""
+      const loggedUser: User = {
+        id: userFromBackend?.id || userFromBackend?._id || "",
+        email: userFromBackend?.email || email,
+        name: userFromBackend?.fullName || userFromBackend?.name || userFromBackend?.email,
+        phone: userFromBackend?.phone,
+        role: userFromBackend?.role || "USER",
+        token: accessToken || ""
       };
 
       if (!loggedUser.id || !loggedUser.token) {
@@ -139,15 +149,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const raw: any = await axiosClient.post("/auth/verify-otp", { email, code: otp });
       const authData = unwrapApiData<LoginPayload>(raw);
-      const account = authData?.account || authData?.user;
+      
+      const accessToken = authData?.accessToken || authData?.data?.accessToken;
+      const userFromBackend = authData?.user || authData?.account || authData?.data?.user || authData?.data?.account;
 
       const loggedUser: User = {
-        id: account?.id || account?._id || "",
-        email: account?.email || email,
-        name: account?.fullName || account?.name || account?.email,
-        phone: account?.phone,
-        role: account?.role || "USER",
-        token: authData?.accessToken || authData?.token || ""
+        id: userFromBackend?.id || userFromBackend?._id || "",
+        email: userFromBackend?.email || email,
+        name: userFromBackend?.fullName || userFromBackend?.name || userFromBackend?.email,
+        phone: userFromBackend?.phone,
+        role: userFromBackend?.role || "USER",
+        token: accessToken || ""
       };
 
       if (loggedUser.id && loggedUser.token) {
