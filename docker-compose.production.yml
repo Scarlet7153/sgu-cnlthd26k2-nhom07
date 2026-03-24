@@ -1,0 +1,157 @@
+# =========================================================
+# Production Docker Compose for Full Stack App
+# Runs BE microservices + Frontend + Nginx Proxy
+# =========================================================
+
+services:
+  # =============================================
+  # In-App Redis (If not using external Redis)
+  # =============================================
+  redis:
+    image: redis:7-alpine
+    container_name: pcshop-redis-prod
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prod-net
+
+  # =============================================
+  # Spring Cloud Infrastructure
+  # =============================================
+  eureka-service:
+    build: ./backend/eureka-service
+    container_name: eureka-service-prod
+    ports:
+      - "8761:8761"
+    environment:
+      - SERVER_PORT=8761
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - prod-net
+
+  api-gateway:
+    build: ./backend/api-gateway
+    container_name: api-gateway-prod
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+      - SPRING_PROFILES_ACTIVE=prod
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  # =============================================
+  # Business Services (MongoDB Atlas connected)
+  # =============================================
+  user-service:
+    build: ./backend/user-service
+    container_name: user-service-prod
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_PORT=8081
+      - SPRING_DATA_MONGODB_URI=${MONGODB_URI_USER:-mongodb+srv://admin:pass@cluster.mongodb.net/user_db?retryWrites=true&w=majority}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  product-service:
+    build: ./backend/product-service
+    container_name: product-service-prod
+    ports:
+      - "8082:8082"
+    environment:
+      - SERVER_PORT=8082
+      - SPRING_DATA_MONGODB_URI=${MONGODB_URI_PRODUCT:-mongodb+srv://admin:pass@cluster.mongodb.net/product_db?retryWrites=true&w=majority}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  order-service:
+    build: ./backend/order-service
+    container_name: order-service-prod
+    ports:
+      - "8083:8083"
+    environment:
+      - SERVER_PORT=8083
+      - SPRING_DATA_MONGODB_URI=${MONGODB_URI_ORDER:-mongodb+srv://admin:pass@cluster.mongodb.net/order_db?retryWrites=true&w=majority}
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  payment-service:
+    build: ./backend/payment-service
+    container_name: payment-service-prod
+    ports:
+      - "8084:8084"
+    environment:
+      - SERVER_PORT=8084
+      - SPRING_DATA_MONGODB_URI=${MONGODB_URI_PAYMENT:-mongodb+srv://admin:pass@cluster.mongodb.net/payment_db?retryWrites=true&w=majority}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  auth-service:
+    build: ./backend/auth-service
+    container_name: auth-service-prod
+    ports:
+      - "8085:8085"
+    environment:
+      - SERVER_PORT=8085
+      - SPRING_DATA_MONGODB_URI=${MONGODB_URI_AUTH:-mongodb+srv://admin:pass@cluster.mongodb.net/auth_db?retryWrites=true&w=majority}
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - prod-net
+
+  # =============================================
+  # Frontend & Nginx Server (Depends on API Gateway)
+  # =============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend-nginx-prod
+    ports:
+      # Expose on port 80 for production accessing
+      - "80:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - prod-net
+
+networks:
+  prod-net:
+    driver: bridge
