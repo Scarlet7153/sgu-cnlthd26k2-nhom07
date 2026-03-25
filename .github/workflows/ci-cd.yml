@@ -103,23 +103,3 @@ jobs:
           # curl -f $URL || exit 1
           echo "Smoke test simulated/passed"
 
-  notify:
-    name: Send Notification Results
-    needs: [ci-frontend, ci-backend, cd-deploy]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Telegram on pass/fail
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_TO }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: |
-            CI/CD Pipeline finished for ${{ github.repository }}!
-            Branch: ${{ github.ref }}
-            ----------
-            Frontend CI: ${{ needs.ci-frontend.result }}
-            Backend CI: ${{ needs.ci-backend.result }}
-            Deploy CD: ${{ needs.cd-deploy.result }}
-            ----------
-            Check detailed logs on GitHub Actions.
