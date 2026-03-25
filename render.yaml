@@ -1,0 +1,98 @@
+# =========================================================
+# Render Blueprint (render.yaml)
+# File này cho phép triển khai hàng loạt toàn bộ Microservices 
+# và Frontend lên Render.com chỉ với 1 cú click (Blueprint Sync).
+# =========================================================
+
+services:
+  # ==============================
+  # 1. HẠ TẦNG (INFRASTRUCTURE)
+  # ==============================
+  - type: web
+    name: pcshop-eureka-service
+    env: docker
+    rootDir: backend/eureka-service
+    dockerfilePath: Dockerfile
+    plan: free # Chỉ có thể chọn free cho 1-2 service đầu nghen
+    healthCheckPath: /actuator/health
+    
+  - type: web
+    name: pcshop-api-gateway
+    env: docker
+    rootDir: backend/api-gateway
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+
+  # ==============================
+  # 2. CÁC MODULE CHỨC NĂNG
+  # ==============================
+  - type: web
+    name: pcshop-auth-service
+    env: docker
+    rootDir: backend/auth-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+        
+  - type: web
+    name: pcshop-user-service
+    env: docker
+    rootDir: backend/user-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+        
+  - type: web
+    name: pcshop-product-service
+    env: docker
+    rootDir: backend/product-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+
+  - type: web
+    name: pcshop-order-service
+    env: docker
+    rootDir: backend/order-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+
+  - type: web
+    name: pcshop-payment-service
+    env: docker
+    rootDir: backend/payment-service
+    dockerfilePath: Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+        value: https://pcshop-eureka-service.onrender.com/eureka/
+      - key: FRONTEND_URL
+        value: https://pcshop-frontend.onrender.com
+      - key: BACKEND_URL
+        value: https://pcshop-api-gateway.onrender.com
+
+  # ==============================
+  # 3. FRONTEND (Giao diện React)
+  # ==============================
+  - type: web
+    name: pcshop-frontend
+    env: docker
+    rootDir: frontend
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: VITE_API_URL
+        value: https://pcshop-api-gateway.onrender.com/api

@@ -21,8 +21,8 @@ momo:
   access-key: F8BBA842ECF85
   secret-key: K951B6PE1waDMi640xX08PD3vg6EkVlz
   api-endpoint: https://test-payment.momo.vn/v2/gateway/api/create
-  redirect-url: http://localhost:5173/payment/result
-  ipn-url: http://localhost:8080/api/payments/callback/momo
+  redirect-url: ${FRONTEND_URL:http://localhost:5173}/payment/result
+  ipn-url: ${BACKEND_URL:http://localhost:8080}/api/payments/callback/momo
   request-type: payWithMethod
 
 management:

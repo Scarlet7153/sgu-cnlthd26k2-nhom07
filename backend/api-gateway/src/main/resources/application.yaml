@@ -16,6 +16,9 @@ spring:
             allowedOrigins:
               - "http://localhost:5173"
               - "http://localhost:3000"
+              - "https://*.*.railway.app"  # Cho phép các domain của frontend deploy trên Railway
+            allowedOriginPatterns:
+              - "*"                        # Mở tạm wildcard để tránh kẹt CORS lúc test
             allowedMethods:
               - GET
               - POST
