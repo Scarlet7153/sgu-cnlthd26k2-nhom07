@@ -13,7 +13,7 @@ export default function OTPVerificationPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { verifyOtp, resendOtp } = useAuth();
+  const { user, verifyOtp, resendOtp } = useAuth();
   
   // Get email from route state
   const email = (location.state as any)?.email || "";
@@ -22,6 +22,13 @@ export default function OTPVerificationPage() {
   const [resending, setResending] = useState(false);
   const [otpExpiresIn, setOtpExpiresIn] = useState(900); // 15 minutes - OTP expiry
   const [resendCooldown, setResendCooldown] = useState(60); // 60 seconds - resend cooldown
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate("/", { replace: true });
+    }
+  }, [user, navigate]);
 
   // Redirect if no email provided
   useEffect(() => {
@@ -100,7 +107,7 @@ export default function OTPVerificationPage() {
     }
 
     setResending(true);
-    const { error, otpExpiresIn } = await resendOtp(email);
+    const { error } = await resendOtp(email);
     setResending(false);
 
     if (error) {
@@ -111,7 +118,7 @@ export default function OTPVerificationPage() {
       });
     } else {
       toast({ title: "Mã OTP mới đã được gửi!" });
-      setOtpExpiresIn(otpExpiresIn || 900); // Reset OTP expiry
+      setOtpExpiresIn(900); // Reset OTP expiry
       setResendCooldown(60); // Reset resend cooldown to 60 seconds
       setOtp("");
     }

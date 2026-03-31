@@ -40,6 +40,7 @@ interface LoginPayload {
   data?: {
     account?: BackendAccount;
     user?: BackendAccount;
+    accessToken?: string;
   };
 }
 
@@ -69,22 +70,20 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Load User từ JS Token Storage lúc F5 
-  useEffect(() => {
+  const [user, setUser] = useState<User | null>(() => {
     try {
-      const stored = localStorage.getItem("auth-user");
+      const stored = typeof window !== 'undefined' ? localStorage.getItem("auth-user") : null;
       if (stored) {
-        setUser(JSON.parse(stored));
+        return JSON.parse(stored);
       }
     } catch {
-      localStorage.removeItem("auth-user");
-    } finally {
-      setLoading(false);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem("auth-user");
+      }
     }
-  }, []);
+    return null;
+  });
+  const [loading, setLoading] = useState(false);
 
   const signIn = useCallback(async (email: string, password: string): Promise<SignInResult> => {
     try {

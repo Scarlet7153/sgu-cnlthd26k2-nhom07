@@ -40,9 +40,13 @@ export default function ProductDetailPage() {
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const { toast } = useToast();
-  
+
   const { data: product, isLoading } = useProductDetail(id);
-  const { data: relatedData } = useProducts({ categoryId: product?.category, size: 5 });
+  const { data: relatedData } = useProducts({ 
+    categoryId: product?.category, 
+    keyword: product?.brand && product.brand !== "Unknown" ? product.brand : undefined,
+    size: 10 
+  });
 
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
@@ -107,7 +111,8 @@ export default function ProductDetailPage() {
 
   const relatedProducts = (relatedData?.content || [])
     .filter((p) => p.id !== product.id)
-    .slice(0, 4);
+    .filter((p) => !product.brand || product.brand === "Unknown" || p.brand === product.brand)
+    .slice(0, 5);
 
   const specEntries = Object.entries(product.specs || {});
   const formatSpecValue = (value: unknown): string => {
@@ -167,11 +172,10 @@ export default function ProductDetailPage() {
               <button
                 key={i}
                 onClick={() => setSelectedImage(i)}
-                className={`aspect-square rounded-lg border-2 bg-card transition-colors ${
-                  selectedImage === i
-                    ? "border-primary"
-                    : "border-border hover:border-muted-foreground/50"
-                }`}
+                className={`aspect-square rounded-lg border-2 bg-card transition-colors ${selectedImage === i
+                  ? "border-primary"
+                  : "border-border hover:border-muted-foreground/50"
+                  }`}
               >
                 <img
                   src={img}
@@ -202,13 +206,12 @@ export default function ProductDetailPage() {
               {Array.from({ length: 5 }).map((_, i) => (
                 <Star
                   key={i}
-                  className={`h-4 w-4 ${
-                    i < Math.floor(product.rating)
-                      ? "fill-yellow-400 text-yellow-400"
-                      : i < product.rating
-                        ? "fill-yellow-400/50 text-yellow-400"
-                        : "text-muted-foreground/30"
-                  }`}
+                  className={`h-4 w-4 ${i < Math.floor(product.rating)
+                    ? "fill-yellow-400 text-yellow-400"
+                    : i < product.rating
+                      ? "fill-yellow-400/50 text-yellow-400"
+                      : "text-muted-foreground/30"
+                    }`}
                 />
               ))}
             </div>
@@ -425,11 +428,10 @@ export default function ProductDetailPage() {
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Star
                       key={i}
-                      className={`h-5 w-5 ${
-                        i < Math.floor(product.rating)
-                          ? "fill-yellow-400 text-yellow-400"
-                          : "text-muted-foreground/30"
-                      }`}
+                      className={`h-5 w-5 ${i < Math.floor(product.rating)
+                        ? "fill-yellow-400 text-yellow-400"
+                        : "text-muted-foreground/30"
+                        }`}
                     />
                   ))}
                 </div>
@@ -475,9 +477,8 @@ export default function ProductDetailPage() {
                       {Array.from({ length: 5 }).map((_, j) => (
                         <Star
                           key={j}
-                          className={`h-3.5 w-3.5 ${
-                            j < review.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"
-                          }`}
+                          className={`h-3.5 w-3.5 ${j < review.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"
+                            }`}
                         />
                       ))}
                     </div>
