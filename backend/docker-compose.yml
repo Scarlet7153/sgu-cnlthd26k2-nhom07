@@ -66,6 +66,24 @@ services:
   # =============================================
   # Business Services
   # =============================================
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    ports:
+      - "8085:8085"
+    environment:
+      - SERVER_PORT=8085
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/user_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-service:8761/eureka/
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
+
   user-service:
     build: ./user-service
     container_name: user-service

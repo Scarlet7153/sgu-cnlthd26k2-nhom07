@@ -38,9 +38,7 @@ public class UserService {
         Account account = findAccountById(accountId);
 
         if (StringUtils.hasText(request.getFullName())) {
-            account.setName(request.getFullName());
             account.setFullName(request.getFullName());
-            account.setFullNameCamel(request.getFullName());
         }
         if (StringUtils.hasText(request.getEmail())) {
             // Check email unique
@@ -68,7 +66,7 @@ public class UserService {
         }
 
         account = accountRepository.save(account);
-        log.info("Profile updated for user: {}", account.getUsername());
+        log.info("Profile updated for user: {}", account.getEmail());
         return toUserResponse(account);
     }
 
@@ -83,7 +81,7 @@ public class UserService {
 
         account.setPassword(passwordEncoder.encode(request.getNewPassword()));
         accountRepository.save(account);
-        log.info("Password changed for user: {}", account.getUsername());
+        log.info("Password changed for user: {}", account.getEmail());
     }
 
     // ==================== Admin Operations ====================
@@ -107,7 +105,7 @@ public class UserService {
 
         account.setStatus(request.getStatus());
         account = accountRepository.save(account);
-        log.info("User {} status updated to {}", account.getUsername(), request.getStatus());
+        log.info("User {} status updated to {}", account.getEmail(), request.getStatus());
         return toUserResponse(account);
     }
 
@@ -119,16 +117,9 @@ public class UserService {
     }
 
     private UserResponse toUserResponse(Account account) {
-        String displayName = StringUtils.hasText(account.getName())
-            ? account.getName()
-                : (StringUtils.hasText(account.getFullName())
-                    ? account.getFullName()
-                    : (StringUtils.hasText(account.getFullNameCamel()) ? account.getFullNameCamel() : account.getUsername()));
-
         return UserResponse.builder()
                 .id(account.getId())
-                .username(account.getUsername())
-            .name(displayName)
+                .fullName(account.getFullName())
                 .email(account.getEmail())
                 .phone(account.getPhone())
                 .role(account.getRole())

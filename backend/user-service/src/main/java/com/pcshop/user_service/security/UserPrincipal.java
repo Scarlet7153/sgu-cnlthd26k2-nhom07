@@ -7,6 +7,5 @@ import lombok.Data;
 @AllArgsConstructor
 public class UserPrincipal {
     private String id;
-    private String username;
     private String role;
 }
