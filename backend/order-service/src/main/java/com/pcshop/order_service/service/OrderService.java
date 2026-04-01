@@ -1,11 +1,13 @@
 package com.pcshop.order_service.service;
 
+import com.pcshop.order_service.config.OrderConstants;
 import com.pcshop.order_service.dto.request.CancelOrderRequest;
 import com.pcshop.order_service.dto.request.CreateOrderRequest;
 import com.pcshop.order_service.dto.request.ShippingAddressRequest;
 import com.pcshop.order_service.dto.request.UpdateOrderStatusRequest;
 import com.pcshop.order_service.exception.BadRequestException;
 import com.pcshop.order_service.exception.ResourceNotFoundException;
+import com.pcshop.order_service.mapper.OrderShippingAddressMapper;
 import com.pcshop.order_service.model.*;
 import com.pcshop.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,17 +27,12 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final CartService cartService;
-
-    private static final List<String> VALID_STATUSES =
-            List.of("pending", "confirmed", "shipping", "delivered", "cancelled");
-
-    private static final List<String> VALID_PAYMENT_METHODS =
-            List.of("MOMO", "COD");
+    private final OrderShippingAddressMapper shippingAddressMapper;
 
     public Order createOrder(String accountId, CreateOrderRequest request) {
         // Validate payment method
-        if (!VALID_PAYMENT_METHODS.contains(request.getPaymentMethod())) {
-            throw new BadRequestException("Invalid payment method. Must be one of: " + VALID_PAYMENT_METHODS);
+        if (!OrderConstants.VALID_PAYMENT_METHODS.contains(request.getPaymentMethod())) {
+            throw new BadRequestException(OrderConstants.ERROR_INVALID_PAYMENT_METHOD + OrderConstants.VALID_PAYMENT_METHODS);
         }
 
         List<OrderItem> orderItems;
@@ -88,14 +85,12 @@ public class OrderService {
                 .items(orderItems)
                 .total(total)
                 .note(request.getNote())
-                .shippingAddress(request.getShippingAddress() != null
-                        ? toShippingAddress(request.getShippingAddress())
-                        : null)
+                .shippingAddress(shippingAddressMapper.toEntity(request.getShippingAddress()))
                 .build();
 
         // Add initial status history
         order.getHistoryStatus().add(StatusHistory.builder()
-                .status("pending")
+                .status(OrderConstants.STATUS_PENDING)
                 .note("Order created")
                 .changeBy("system")
                 .createdAt(Instant.now())
@@ -110,15 +105,6 @@ public class OrderService {
 
         log.info("Order created: {} for account: {}", order.getId(), accountId);
         return order;
-    }
-
-    private ShippingAddress toShippingAddress(ShippingAddressRequest req) {
-        ShippingAddress addr = new ShippingAddress();
-        addr.setFullName(req.getFullName());
-        addr.setPhone(req.getPhone());
-        addr.setEmail(req.getEmail());
-        addr.setAddress(req.getAddress());
-        return addr;
     }
 
     public Order getOrderById(String orderId) {
@@ -141,12 +127,12 @@ public class OrderService {
     public Order updateOrderStatus(String orderId, UpdateOrderStatusRequest request, String changedBy) {
         Order order = getOrderById(orderId);
 
-        if (!VALID_STATUSES.contains(request.getStatus())) {
-            throw new BadRequestException("Invalid status. Must be one of: " + VALID_STATUSES);
+        if (!OrderConstants.VALID_STATUSES.contains(request.getStatus())) {
+            throw new BadRequestException(OrderConstants.ERROR_INVALID_STATUS + OrderConstants.VALID_STATUSES);
         }
 
-        if ("cancelled".equals(order.getStatus()) || "delivered".equals(order.getStatus())) {
-            throw new BadRequestException("Cannot update status of " + order.getStatus() + " order");
+        if (OrderConstants.FINAL_STATUSES.contains(order.getStatus())) {
+            throw new BadRequestException(OrderConstants.ERROR_CANNOT_CANCEL_ORDER + order.getStatus());
         }
 
         order.setStatus(request.getStatus());
@@ -167,18 +153,18 @@ public class OrderService {
 
         // Only the owner can cancel
         if (!order.getAccountId().equals(accountId)) {
-            throw new BadRequestException("You can only cancel your own orders");
+            throw new BadRequestException(OrderConstants.ERROR_ACCESS_DENIED);
         }
 
         // Can only cancel pending or confirmed orders
-        if (!"pending".equals(order.getStatus()) && !"confirmed".equals(order.getStatus())) {
-            throw new BadRequestException("Cannot cancel order with status: " + order.getStatus());
+        if (!OrderConstants.STATUS_PENDING.equals(order.getStatus()) && !OrderConstants.STATUS_CONFIRMED.equals(order.getStatus())) {
+            throw new BadRequestException(OrderConstants.ERROR_CANNOT_CANCEL_ORDER + order.getStatus());
         }
 
-        order.setStatus("cancelled");
+        order.setStatus(OrderConstants.STATUS_CANCELLED);
         order.setCancelReason(request != null ? request.getCancelReason() : null);
         order.getHistoryStatus().add(StatusHistory.builder()
-                .status("cancelled")
+                .status(OrderConstants.STATUS_CANCELLED)
                 .note(request != null ? request.getCancelReason() : "Cancelled by user")
                 .changeBy(accountId)
                 .createdAt(Instant.now())
@@ -192,8 +178,8 @@ public class OrderService {
     public Order updatePaymentStatus(String orderId, String paymentStatus, String changedBy) {
         Order order = getOrderById(orderId);
 
-        if (!List.of("unpaid", "paid", "refunded").contains(paymentStatus)) {
-            throw new BadRequestException("Invalid payment status");
+        if (!OrderConstants.VALID_PAYMENT_STATUSES.contains(paymentStatus)) {
+            throw new BadRequestException(OrderConstants.ERROR_INVALID_PAYMENT_STATUS);
         }
 
         order.setPaymentStatus(paymentStatus);

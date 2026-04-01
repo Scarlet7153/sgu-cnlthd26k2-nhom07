@@ -1,5 +1,6 @@
 package com.pcshop.auth_service.service;
 
+import com.pcshop.auth_service.config.AuthConstants;
 import com.pcshop.auth_service.dto.request.LoginRequest;
 import com.pcshop.auth_service.dto.request.RefreshTokenRequest;
 import com.pcshop.auth_service.dto.request.RegisterRequest;
@@ -40,18 +41,16 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final EmailService emailService;
 
-    private static final long OTP_EXPIRY_MINUTES = 15;
-
     public RegisterResponse register(RegisterRequest request) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
         String normalizedPhone = StringUtils.hasText(request.getPhone()) ? request.getPhone().trim() : null;
 
         // Check unique constraints
         if (accountRepository.existsByEmail(normalizedEmail)) {
-            throw new BadRequestException("Email already exists");
+            throw new BadRequestException(AuthConstants.ERROR_EMAIL_EXISTS);
         }
         if (StringUtils.hasText(normalizedPhone) && accountRepository.existsByPhone(normalizedPhone)) {
-            throw new BadRequestException("Phone already exists");
+            throw new BadRequestException(AuthConstants.ERROR_PHONE_EXISTS);
         }
 
         // Build address_details if provided
@@ -72,7 +71,7 @@ public class AuthService {
                 .email(normalizedEmail)
                 .phone(normalizedPhone)
                 .addressDetails(addressDetails)
-                .status("unverified")  // Set to unverified until OTP is confirmed
+                .status(AuthConstants.STATUS_UNVERIFIED)  // Set to unverified until OTP is confirmed
                 .build();
 
         account = accountRepository.save(account);
@@ -83,7 +82,7 @@ public class AuthService {
         return RegisterResponse.builder()
                 .message("Mã OTP đã được gửi đến email của bạn")
                 .email(normalizedEmail)
-                .otpExpiresIn(OTP_EXPIRY_MINUTES * 60)
+                .otpExpiresIn(AuthConstants.OTP_EXPIRY_MINUTES * 60)
                 .build();
     }
 
@@ -92,13 +91,13 @@ public class AuthService {
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
         if (!passwordEncoder.matches(request.getPassword(), account.getPassword())) {
-            throw new BadCredentialsException("Invalid email or password");
+            throw new BadCredentialsException(AuthConstants.ERROR_INVALID_CREDENTIALS);
         }
 
-        if (!"active".equals(account.getStatus())) {
+        if (!AuthConstants.STATUS_ACTIVE.equals(account.getStatus())) {
             String email = account.getEmail().trim().toLowerCase();
             generateAndSendOtp(email);
-            throw new BadRequestException("Account not verified. New OTP has been sent to your email");
+            throw new BadRequestException(AuthConstants.ERROR_ACCOUNT_NOT_VERIFIED);
         }
 
         log.info("User logged in: {}", account.getEmail());
@@ -107,11 +106,11 @@ public class AuthService {
 
     public AuthResponse refresh(RefreshTokenRequest request) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken())
-                .orElseThrow(() -> new BadRequestException("Invalid refresh token"));
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_INVALID_REFRESH_TOKEN));
 
         if (refreshToken.getExpiresAt().isBefore(Instant.now())) {
             refreshTokenRepository.delete(refreshToken);
-            throw new BadRequestException("Refresh token has expired");
+            throw new BadRequestException(AuthConstants.ERROR_REFRESH_TOKEN_EXPIRED);
         }
 
         Account account = accountRepository.findById(refreshToken.getAccountId())
@@ -132,31 +131,36 @@ public class AuthService {
     public AuthResponse verifyOtp(VerifyOtpRequest request) {
         String normalizedEmail = request.getEmail().trim().toLowerCase();
 
+        // Validate OTP code format (must be 6 digits)
+        if (request.getCode() == null || !request.getCode().matches("\\d{" + AuthConstants.OTP_LENGTH + "}")) {
+            throw new BadRequestException(AuthConstants.ERROR_INVALID_OTP_FORMAT);
+        }
+
         // Find OTP
         Otp otp = otpRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new BadRequestException("OTP not found or expired"));
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_OTP_EXPIRED));
 
         if (otp.isExpired()) {
             otpRepository.delete(otp);
-            throw new BadRequestException("OTP has expired");
+            throw new BadRequestException(AuthConstants.ERROR_OTP_EXPIRED);
         }
 
         if (!otp.getCode().equals(request.getCode())) {
             otp.setAttempts(otp.getAttempts() + 1);
             otpRepository.save(otp);
             
-            if (otp.getAttempts() >= 5) {
+            if (otp.getAttempts() >= AuthConstants.MAX_OTP_ATTEMPTS) {
                 otpRepository.delete(otp);
-                throw new BadRequestException("Too many failed attempts. Please request a new OTP");
+                throw new BadRequestException(AuthConstants.ERROR_TOO_MANY_ATTEMPTS);
             }
-            throw new BadRequestException("Invalid OTP code");
+            throw new BadRequestException(AuthConstants.ERROR_INVALID_OTP);
         }
 
         // Find and activate account
         Account account = accountRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new BadRequestException("Account not found"));
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_ACCOUNT_NOT_FOUND));
 
-        account.setStatus("active");
+        account.setStatus(AuthConstants.STATUS_ACTIVE);
         accountRepository.save(account);
         
         // Delete OTP
@@ -173,10 +177,10 @@ public class AuthService {
 
         // Find account
         Account account = accountRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new BadRequestException("Account not found"));
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_ACCOUNT_NOT_FOUND));
 
-        if ("active".equals(account.getStatus())) {
-            throw new BadRequestException("Account is already verified");
+        if (AuthConstants.STATUS_ACTIVE.equals(account.getStatus())) {
+            throw new BadRequestException(AuthConstants.ERROR_ACCOUNT_ALREADY_VERIFIED);
         }
 
         generateAndSendOtp(normalizedEmail);
@@ -184,19 +188,19 @@ public class AuthService {
         return RegisterResponse.builder()
                 .message("Mã OTP mới đã được gửi đến email của bạn")
                 .email(normalizedEmail)
-                .otpExpiresIn(OTP_EXPIRY_MINUTES * 60)
+                .otpExpiresIn(AuthConstants.OTP_EXPIRY_MINUTES * 60)
                 .build();
     }
 
     private String generateOtpCode() {
         Random random = new Random();
-        int otp = 100000 + random.nextInt(900000); // 6-digit number
+        int otp = (int) Math.pow(10, AuthConstants.OTP_LENGTH - 1) + random.nextInt((int) (Math.pow(10, AuthConstants.OTP_LENGTH) - Math.pow(10, AuthConstants.OTP_LENGTH - 1)));
         return String.valueOf(otp);
     }
 
     private void generateAndSendOtp(String normalizedEmail) {
         String otpCode = generateOtpCode();
-        Instant expiresAt = Instant.now().plusSeconds(OTP_EXPIRY_MINUTES * 60);
+        Instant expiresAt = Instant.now().plusSeconds(AuthConstants.OTP_EXPIRY_MINUTES * 60);
 
         otpRepository.deleteByEmail(normalizedEmail);
 

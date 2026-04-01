@@ -1,57 +1,58 @@
 package com.pcshop.product_service.service;
 
+import com.pcshop.product_service.config.CacheConfig;
+import com.pcshop.product_service.config.ProductConstants;
 import com.pcshop.product_service.dto.request.ProductRequest;
 import com.pcshop.product_service.exception.ResourceNotFoundException;
-import com.pcshop.product_service.model.Category;
 import com.pcshop.product_service.model.Product;
 import com.pcshop.product_service.repository.CategoryRepository;
 import com.pcshop.product_service.repository.ProductRepository;
+import com.pcshop.product_service.util.InputValidationUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
 import org.bson.types.ObjectId;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@SuppressWarnings("null")
 public class ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final MongoTemplate mongoTemplate;
-    
-    // Cache brands in memory (simple caching)
-    private volatile List<String> cachedBrands = null;
-    private volatile long brandsCacheTTL = 0;
-    private static final long CACHE_TTL_MILLIS = 5 * 60 * 1000; // 5 minutes
 
+    // MongoDB index recommendations (referenced for documentation):
+    // db.products.createIndex({ categoryId: 1, price: 1 })
+    // db.products.createIndex({ categoryId: 1, "specs_raw.Thương hiệu": 1 })
+    // db.products.createIndex({ "specs_raw.Thương hiệu": 1 })
+    // db.categories.createIndex({ is_active: 1 })
+    // db.categories.createIndex({ code: 1 }, { unique: true })
     public Page<Product> getAllProducts(Pageable pageable, boolean includeInactiveCategory) {
         if (includeInactiveCategory) {
             return productRepository.findAll(pageable);
         }
-
-        List<ObjectId> activeCategoryIds = getActiveCategoryIds();
-        if (activeCategoryIds.isEmpty()) {
-            return Page.empty(pageable);
-        }
-
-        Query query = new Query(Criteria.where("categoryId").in(activeCategoryIds));
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
-        return new PageImpl<>(content, pageable, total);
+        return findWithActiveCategoryFilter(new Criteria(), pageable);
     }
 
     public Product getProductById(String id) {
@@ -61,174 +62,84 @@ public class ProductService {
 
     public Product getProductById(String id, boolean includeInactiveCategory) {
         Product product = getProductById(id);
-        if (includeInactiveCategory) {
-            return product;
-        }
-
-        if (!isCategoryActive(product.getCategoryId())) {
+        if (!includeInactiveCategory && !isCategoryActive(product.getCategoryId())) {
             throw new ResourceNotFoundException("Product", "id", id);
         }
-
         return product;
     }
 
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable) {
-        if (categoryId == null || categoryId.trim().isEmpty()) {
-            return Page.empty(pageable);
-        }
-        try {
-            return productRepository.findByCategoryId(new ObjectId(categoryId), pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
-        }
+        return getProductsByCategory(categoryId, pageable, false);
     }
 
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable, boolean includeInactiveCategory) {
-        if (categoryId == null || categoryId.trim().isEmpty()) {
+        Optional<ObjectId> catId = parseObjectId(categoryId);
+        if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        try {
-            ObjectId catId = new ObjectId(categoryId);
-            if (!includeInactiveCategory && !isCategoryActive(catId)) {
-                return Page.empty(pageable);
-            }
-            return productRepository.findByCategoryId(catId, pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
+        if (includeInactiveCategory) {
+            return productRepository.findByCategoryId(catId.get(), pageable);
         }
+
+        return findWithActiveCategoryFilter(
+                Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(catId.get()),
+                pageable
+        );
     }
 
     public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable) {
-        if (keyword == null || keyword.trim().isEmpty()) {
-            return Page.empty(pageable);
-        }
-
-        List<String> tokens = Arrays.stream(keyword.trim().split("\\s+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .limit(6)
-                .collect(Collectors.toList());
-
-        if (tokens.isEmpty()) {
-            return Page.empty(pageable);
-        }
-
-        // Build "contains all tokens" regex per field, e.g. (?i)(?=.*AMD)(?=.*9800x3d).*
-        String lookAheadRegex = tokens.stream()
-                .map(token -> "(?=.*" + Pattern.quote(token) + ")")
-                .collect(Collectors.joining("", "", ".*"));
-
-        Criteria searchCriteria = new Criteria().orOperator(
-                Criteria.where("name").regex(lookAheadRegex, "i"),
-                Criteria.where("model").regex(lookAheadRegex, "i"),
-                Criteria.where("socket").regex(lookAheadRegex, "i")
-        );
-
-        Query query;
-        if (categoryId != null && !categoryId.trim().isEmpty()) {
-            try {
-                ObjectId catId = new ObjectId(categoryId);
-                query = new Query(new Criteria().andOperator(
-                        Criteria.where("categoryId").is(catId),
-                        searchCriteria
-                ));
-            } catch (IllegalArgumentException e) {
-                return Page.empty(pageable);
-            }
-        } else {
-            query = new Query(searchCriteria);
-        }
-
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
-
-        return new PageImpl<>(content, pageable, total);
+        return searchProducts(keyword, categoryId, pageable, false);
     }
 
     public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
-        if (keyword == null || keyword.trim().isEmpty()) {
+        Optional<String> keywordOpt = Optional.ofNullable(keyword).filter(k -> !k.trim().isEmpty());
+        if (keywordOpt.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        List<String> tokens = Arrays.stream(keyword.trim().split("\\s+"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .limit(6)
-                .collect(Collectors.toList());
+        Optional<ObjectId> catId = parseObjectId(categoryId);
 
-        if (tokens.isEmpty()) {
-            return Page.empty(pageable);
+        String sanitizedKeyword = InputValidationUtil.validateSearchKeyword(keyword);
+        Criteria baseCriteria = MongoQueryBuilder.builder()
+                .withSearchKeyword(Optional.of(sanitizedKeyword))
+                .withCategoryId(catId)
+                .build();
+
+        if (includeInactiveCategory) {
+            return executePaginatedQuery(baseCriteria, pageable);
         }
 
-        String lookAheadRegex = tokens.stream()
-                .map(token -> "(?=.*" + Pattern.quote(token) + ")")
-                .collect(Collectors.joining("", "", ".*"));
-
-        Criteria searchCriteria = new Criteria().orOperator(
-                Criteria.where("name").regex(lookAheadRegex, "i"),
-                Criteria.where("model").regex(lookAheadRegex, "i"),
-                Criteria.where("socket").regex(lookAheadRegex, "i")
-        );
-
-        List<Criteria> allCriteria = new java.util.ArrayList<>();
-        allCriteria.add(searchCriteria);
-
-        if (categoryId != null && !categoryId.trim().isEmpty()) {
-            try {
-                ObjectId catId = new ObjectId(categoryId);
-                if (!includeInactiveCategory && !isCategoryActive(catId)) {
-                    return Page.empty(pageable);
-                }
-                allCriteria.add(Criteria.where("categoryId").is(catId));
-            } catch (IllegalArgumentException e) {
-                return Page.empty(pageable);
-            }
-        } else if (!includeInactiveCategory) {
-            List<ObjectId> activeCategoryIds = getActiveCategoryIds();
-            if (activeCategoryIds.isEmpty()) {
-                return Page.empty(pageable);
-            }
-            allCriteria.add(Criteria.where("categoryId").in(activeCategoryIds));
-        }
-
-        Query query = new Query(new Criteria().andOperator(allCriteria.toArray(new Criteria[0])));
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
-
-        return new PageImpl<>(content, pageable, total);
+        return findWithActiveCategoryFilter(baseCriteria, pageable);
     }
 
     public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable) {
-        if (categoryId == null || categoryId.trim().isEmpty()) {
-            return Page.empty(pageable);
-        }
-        try {
-            return productRepository.findByCategoryAndPriceRange(new ObjectId(categoryId), minPrice, maxPrice, pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
-        }
+        return filterByPriceRange(categoryId, minPrice, maxPrice, pageable, false);
     }
 
     public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable, boolean includeInactiveCategory) {
-        if (categoryId == null || categoryId.trim().isEmpty()) {
+        // Validate price range
+        InputValidationUtil.validatePriceRange(minPrice, maxPrice);
+        
+        Optional<ObjectId> catId = parseObjectId(categoryId);
+        if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
-        try {
-            ObjectId catId = new ObjectId(categoryId);
-            if (!includeInactiveCategory && !isCategoryActive(catId)) {
-                return Page.empty(pageable);
-            }
-            return productRepository.findByCategoryAndPriceRange(catId, minPrice, maxPrice, pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
+
+        Criteria baseCriteria = MongoQueryBuilder.builder()
+                .withCategoryId(catId)
+                .withPriceRange(Optional.ofNullable(minPrice), Optional.ofNullable(maxPrice))
+                .build();
+
+        if (includeInactiveCategory) {
+            return executePaginatedQuery(baseCriteria, pageable);
         }
+
+        return findWithActiveCategoryFilter(baseCriteria, pageable);
     }
 
+    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
     public Product createProduct(ProductRequest request) {
-        // Validate categoryId exists
         if (!categoryRepository.existsById(request.getCategoryId())) {
             throw new ResourceNotFoundException("Category", "id", request.getCategoryId());
         }
@@ -254,48 +165,54 @@ public class ProductService {
                     .descriptionHtml(request.getDescriptionHtml())
                     .build();
 
-            product = productRepository.save(product);
-            return product;
+            return productRepository.save(product);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid category ID format: " + request.getCategoryId());
+            throw new IllegalArgumentException(ProductConstants.ERROR_INVALID_CATEGORY_ID + request.getCategoryId());
         }
     }
 
+    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
     public Product updateProduct(String id, ProductRequest request) {
         Product product = getProductById(id);
 
-        if (request.getCategoryId() != null) {
-            if (!categoryRepository.existsById(request.getCategoryId())) {
-                throw new ResourceNotFoundException("Category", "id", request.getCategoryId());
+        Optional.ofNullable(request.getCategoryId()).ifPresent(categoryId -> {
+            if (!categoryRepository.existsById(categoryId)) {
+                throw new ResourceNotFoundException("Category", "id", categoryId);
             }
             try {
-                product.setCategoryId(new ObjectId(request.getCategoryId()));
+                product.setCategoryId(new ObjectId(categoryId));
             } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Invalid category ID format: " + request.getCategoryId());
+                throw new IllegalArgumentException(ProductConstants.ERROR_INVALID_CATEGORY_ID + categoryId);
             }
-        }
+        });
 
-        if (request.getName() != null) product.setName(request.getName());
-        if (request.getModel() != null) product.setModel(request.getModel());
-        if (request.getUrl() != null) product.setUrl(request.getUrl());
-        if (request.getPrice() != null) product.setPrice(request.getPrice());
-        if (request.getImage() != null) product.setImage(request.getImage());
-        if (request.getSocket() != null) product.setSocket(request.getSocket());
-        if (request.getRamType() != null) product.setRamType(request.getRamType());
-        if (request.getHasIgpu() != null) product.setHasIgpu(request.getHasIgpu());
-        if (request.getIgpuName() != null) product.setIgpuName(request.getIgpuName());
-        if (request.getTdpW() != null) product.setTdpW(request.getTdpW());
-        if (request.getCores() != null) product.setCores(request.getCores());
-        if (request.getThreads() != null) product.setThreads(request.getThreads());
-        if (request.getBaseClockGhz() != null) product.setBaseClockGhz(request.getBaseClockGhz());
-        if (request.getBoostClockGhz() != null) product.setBoostClockGhz(request.getBoostClockGhz());
-        if (request.getSpecsRaw() != null) product.setSpecsRaw(request.getSpecsRaw());
-        if (request.getDescriptionHtml() != null) product.setDescriptionHtml(request.getDescriptionHtml());
+        updateProductField(product::setName, request.getName());
+        updateProductField(product::setModel, request.getModel());
+        updateProductField(product::setUrl, request.getUrl());
+        updateProductField(product::setPrice, request.getPrice());
+        updateProductField(product::setImage, request.getImage());
+        updateProductField(product::setSocket, request.getSocket());
+        updateProductField(product::setRamType, request.getRamType());
+        updateProductField(product::setHasIgpu, request.getHasIgpu());
+        updateProductField(product::setIgpuName, request.getIgpuName());
+        updateProductField(product::setTdpW, request.getTdpW());
+        updateProductField(product::setCores, request.getCores());
+        updateProductField(product::setThreads, request.getThreads());
+        updateProductField(product::setBaseClockGhz, request.getBaseClockGhz());
+        updateProductField(product::setBoostClockGhz, request.getBoostClockGhz());
+        updateProductField(product::setSpecsRaw, request.getSpecsRaw());
+        updateProductField(product::setDescriptionHtml, request.getDescriptionHtml());
 
-        product = productRepository.save(product);
-        return product;
+        return productRepository.save(product);
     }
 
+    private <T> void updateProductField(Consumer<T> setter, T value) {
+        if (value != null) {
+            setter.accept(value);
+        }
+    }
+
+    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
     public void deleteProduct(String id) {
         if (!productRepository.existsById(id)) {
             throw new ResourceNotFoundException("Product", "id", id);
@@ -304,118 +221,148 @@ public class ProductService {
         log.info("Product deleted: {}", id);
     }
 
+    @Cacheable(cacheNames = CacheConfig.BRANDS_CACHE)
     public List<String> getBrands() {
-        // Check if cache is valid
-        long now = System.currentTimeMillis();
-        if (cachedBrands != null && (now - brandsCacheTTL) < CACHE_TTL_MILLIS) {
-            return cachedBrands;
-        }
+        // findDistinct chỉ lấy field brand thay vì load full document.
+        List<String> brands = mongoTemplate.findDistinct(new Query(), ProductConstants.FIELD_BRAND, Product.class, String.class);
 
-        Query query = new Query();
-        List<String> brands = mongoTemplate.findDistinct(query, "specs_raw.Thương hiệu", Product.class, String.class);
-        
-        List<String> cleanedBrands = brands.stream()
+        return brands.stream()
                 .filter(b -> b != null && !b.trim().isEmpty())
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
-
-        // Update cache
-        cachedBrands = cleanedBrands;
-        brandsCacheTTL = now;
-        
-        return cleanedBrands;
     }
 
-    /**
-     * Search products by a specific spec field (e.g., type, efficiency, case_type, cooler_type)
-     * Handles specs stored in specsRaw map
-     */
     public Page<Product> searchBySpec(String specField, String specValue, String categoryId, Pageable pageable) {
-        if (specValue == null || specValue.trim().isEmpty()) {
-            return Page.empty(pageable);
-        }
-
-        Query query;
-        if (categoryId != null && !categoryId.trim().isEmpty()) {
-            try {
-                ObjectId catId = new ObjectId(categoryId);
-                query = new Query(new Criteria().andOperator(
-                        Criteria.where("categoryId").is(catId),
-                        Criteria.where("specs_raw." + specField).is(specValue)
-                ));
-            } catch (IllegalArgumentException e) {
-                return Page.empty(pageable);
-            }
-        } else {
-            query = new Query(Criteria.where("specs_raw." + specField).is(specValue));
-        }
-
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
-
-        return new PageImpl<>(content, pageable, total);
+        return searchBySpec(specField, specValue, categoryId, pageable, false);
     }
 
     public Page<Product> searchBySpec(String specField, String specValue, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
-        if (specValue == null || specValue.trim().isEmpty()) {
+        // Validate and sanitize inputs to prevent NoSQL injection
+        InputValidationUtil.validateSpecField(specField);
+        String sanitizedValue = InputValidationUtil.sanitizeSpecValue(specValue);
+        
+        if (sanitizedValue.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        Query query;
-        if (categoryId != null && !categoryId.trim().isEmpty()) {
-            try {
-                ObjectId catId = new ObjectId(categoryId);
-                if (!includeInactiveCategory && !isCategoryActive(catId)) {
-                    return Page.empty(pageable);
-                }
-                query = new Query(new Criteria().andOperator(
-                        Criteria.where("categoryId").is(catId),
-                        Criteria.where("specs_raw." + specField).is(specValue)
-                ));
-            } catch (IllegalArgumentException e) {
-                return Page.empty(pageable);
-            }
-        } else {
-            if (!includeInactiveCategory) {
-                List<ObjectId> activeCategoryIds = getActiveCategoryIds();
-                if (activeCategoryIds.isEmpty()) {
-                    return Page.empty(pageable);
-                }
-                query = new Query(new Criteria().andOperator(
-                        Criteria.where("categoryId").in(activeCategoryIds),
-                        Criteria.where("specs_raw." + specField).is(specValue)
-                ));
-            } else {
-                query = new Query(Criteria.where("specs_raw." + specField).is(specValue));
-            }
+        Optional<ObjectId> catId = parseObjectId(categoryId);
+
+        Criteria baseCriteria = MongoQueryBuilder.builder()
+                .withSpecField(Optional.of(specField), Optional.of(sanitizedValue))
+                .withCategoryId(catId)
+                .build();
+
+        if (includeInactiveCategory) {
+            return executePaginatedQuery(baseCriteria, pageable);
         }
 
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
+        return findWithActiveCategoryFilter(baseCriteria, pageable);
+    }
 
+    private Page<Product> executePaginatedQuery(Criteria criteria, Pageable pageable) {
+        Query query = new Query(criteria).with(pageable);
+        long total = mongoTemplate.count(Query.of(query).limit(-1).skip(-1), Product.class);
+        List<Product> content = mongoTemplate.find(query, Product.class);
         return new PageImpl<>(content, pageable, total);
     }
 
-    private List<ObjectId> getActiveCategoryIds() {
-        return categoryRepository.findByIsActive(true).stream()
-                .map(Category::getId)
-                .filter(ObjectId::isValid)
-                .map(ObjectId::new)
-                .collect(Collectors.toList());
+    private Page<Product> findWithActiveCategoryFilter(Criteria productCriteria, Pageable pageable) {
+        List<AggregationOperation> baseOperations = buildBaseAggregationOperations(productCriteria);
+        List<AggregationOperation> dataPipeline = buildDataPipeline(pageable);
+        baseOperations.add(createFacetOperation(dataPipeline));
+
+        Aggregation aggregation = Aggregation.newAggregation(baseOperations);
+        AggregationResults<Document> results = mongoTemplate.aggregate(aggregation, ProductConstants.COLLECTION_PRODUCTS, Document.class);
+
+        return toProductPage(results.getUniqueMappedResult(), pageable);
     }
 
-    private boolean isCategoryActive(ObjectId categoryId) {
-        if (categoryId == null) {
-            return false;
+    private List<AggregationOperation> buildBaseAggregationOperations(Criteria productCriteria) {
+        List<AggregationOperation> operations = new ArrayList<>();
+        operations.add(Aggregation.match(productCriteria));
+        operations.add(Aggregation.lookup(ProductConstants.COLLECTION_CATEGORIES, ProductConstants.FIELD_CATEGORY_ID, ProductConstants.FIELD_ID, ProductConstants.CATEGORY_DOCS_FIELD));
+        operations.add(Aggregation.unwind(ProductConstants.CATEGORY_DOCS_FIELD));
+        operations.add(Aggregation.match(Criteria.where(ProductConstants.CATEGORY_ACTIVE_FIELD).is(true)));
+        return operations;
+    }
+
+    private List<AggregationOperation> buildDataPipeline(Pageable pageable) {
+        List<AggregationOperation> pipeline = new ArrayList<>();
+        if (pageable.getSort().isSorted()) {
+            pipeline.add(Aggregation.sort(pageable.getSort()));
+        }
+        pipeline.add(Aggregation.skip((long) pageable.getPageNumber() * pageable.getPageSize()));
+        pipeline.add(Aggregation.limit(pageable.getPageSize()));
+        return pipeline;
+    }
+
+    private AggregationOperation createFacetOperation(List<AggregationOperation> dataPipeline) {
+        return Aggregation.facet(dataPipeline.toArray(new AggregationOperation[0]))
+                .as("data")
+                .and(Aggregation.count().as("total"))
+                .as("meta");
+    }
+
+    private Page<Product> toProductPage(Document facetResult, Pageable pageable) {
+        if (facetResult == null) {
+            return Page.empty(pageable);
         }
 
-        return categoryRepository.findById(categoryId.toHexString())
-                .map(category -> Boolean.TRUE.equals(category.getIsActive()))
+        List<Document> rows = facetResult.getList("data", Document.class);
+        List<Product> content = Optional.ofNullable(rows)
+                .orElseGet(List::of)
+                .stream()
+                .map(doc -> mongoTemplate.getConverter().read(Product.class, doc))
+                .toList();
+
+        long total = extractTotalFromMeta(facetResult.getList("meta", Document.class));
+        return new PageImpl<>(content, pageable, total);
+    }
+
+    private long extractTotalFromMeta(List<Document> meta) {
+        return Optional.ofNullable(meta)
+                .filter(m -> !m.isEmpty())
+                .map(m -> m.get(0))
+                .map(doc -> doc.get("total"))
+                .filter(Number.class::isInstance)
+                .map(Number.class::cast)
+                .map(Number::longValue)
+                .orElse(0L);
+    }
+
+    private Optional<ObjectId> parseObjectId(String value) {
+        return Optional.ofNullable(value)
+                .filter(v -> !v.trim().isEmpty())
+                .flatMap(v -> {
+                    try {
+                        return Optional.of(new ObjectId(v.trim()));
+                    } catch (IllegalArgumentException e) {
+                        return Optional.empty();
+                    }
+                });
+    }
+
+    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId.toString()")
+    private boolean isCategoryActive(ObjectId categoryId) {
+        return Optional.ofNullable(categoryId)
+                .map(id -> {
+                    Query query = new Query(new Criteria().andOperator(
+                            Criteria.where(ProductConstants.FIELD_ID).is(id),
+                            Criteria.where(ProductConstants.FIELD_IS_ACTIVE).is(true)
+                    ));
+                    return mongoTemplate.exists(query, ProductConstants.COLLECTION_CATEGORIES);
+                })
                 .orElse(false);
     }
 
-}
+    private boolean isValidSpecField(String specField) {
+        return Optional.ofNullable(specField)
+                .map(ProductConstants.ALLOWED_SPEC_FIELDS::contains)
+                .orElse(false);
+    }
 
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+}

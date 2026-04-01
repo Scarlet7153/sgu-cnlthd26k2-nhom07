@@ -49,7 +49,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneral(Exception ex) {
+        // Log full error internally
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("Uncaught exception occurred", ex);
+        
+        // Return generic message to client - don't expose internal details
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Internal server error: " + ex.getMessage()));
+                .body(ApiResponse.error("Lỗi máy chủ nội bộ. Vui lòng thử lại sau"));
     }
 }
