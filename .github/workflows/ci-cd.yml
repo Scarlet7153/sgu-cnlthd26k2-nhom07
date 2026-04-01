@@ -64,42 +64,102 @@ jobs:
           done
 
   cd-deploy:
-    name: CD - Deploy to Railway
+    name: CD - Deploy to Render
     needs: [ci-frontend, ci-backend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install Railway CLI
-        run: npm i -g @railway/cli
-        
-      - name: Deploy Backend Services (Zero-Downtime where possible)
+      - name: Deploy Eureka Service to Render
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RENDER_DEPLOY_HOOK_EUREKA: ${{ secrets.RENDER_DEPLOY_HOOK_EUREKA }}
         run: |
-          echo "Deploying Backend to Railway..."
-          # Deploying BE first as requested. 
-          # You might need to deploy Eureka first, wait, then API Gateway etc.
-          # Example using Railway CLI (Replace service-names with your actual Railway Service Names):
-          railway up --service backend-api-gateway -d || echo "Please configure Railway project services"
+          if [ -n "$RENDER_DEPLOY_HOOK_EUREKA" ]; then
+            echo "🚀 Deploying Eureka Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_EUREKA" --header 'Content-Type: application/json'
+            echo "✅ Eureka deployment triggered"
+          fi
           
-          # Sleep to allow backend to start before deploying frontend
-          sleep 15
-          
-      - name: Deploy Frontend Services
+      - name: Deploy API Gateway to Render
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RENDER_DEPLOY_HOOK_API_GATEWAY: ${{ secrets.RENDER_DEPLOY_HOOK_API_GATEWAY }}
         run: |
-          echo "Deploying Frontend to Railway..."
-          railway up --service frontend -d || echo "Please configure Railway project services"
+          if [ -n "$RENDER_DEPLOY_HOOK_API_GATEWAY" ]; then
+            echo "🚀 Deploying API Gateway..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_API_GATEWAY" --header 'Content-Type: application/json'
+            echo "✅ API Gateway deployment triggered"
+          fi
           
-      - name: Smoke Test Backend Health
+      - name: Deploy Product Service to Render
+        env:
+          RENDER_DEPLOY_HOOK_PRODUCT: ${{ secrets.RENDER_DEPLOY_HOOK_PRODUCT }}
         run: |
-          echo "Running health check on API Gateway /health endpoint..."
-          # Replace with your actual production domain
-          URL="https://your-api-domain.up.railway.app/actuator/health"
-          echo "Checking $URL"
-          # curl -f $URL || exit 1
-          echo "Smoke test simulated/passed"
+          if [ -n "$RENDER_DEPLOY_HOOK_PRODUCT" ]; then
+            echo "🚀 Deploying Product Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_PRODUCT" --header 'Content-Type: application/json'
+            echo "✅ Product Service deployment triggered"
+          fi
+          
+      - name: Deploy Order Service to Render
+        env:
+          RENDER_DEPLOY_HOOK_ORDER: ${{ secrets.RENDER_DEPLOY_HOOK_ORDER }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_ORDER" ]; then
+            echo "🚀 Deploying Order Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_ORDER" --header 'Content-Type: application/json'
+            echo "✅ Order Service deployment triggered"
+          fi
+          
+      - name: Deploy Payment Service to Render
+        env:
+          RENDER_DEPLOY_HOOK_PAYMENT: ${{ secrets.RENDER_DEPLOY_HOOK_PAYMENT }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_PAYMENT" ]; then
+            echo "🚀 Deploying Payment Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_PAYMENT" --header 'Content-Type: application/json'
+            echo "✅ Payment Service deployment triggered"
+          fi
+          
+      - name: Deploy Auth Service to Render
+        env:
+          RENDER_DEPLOY_HOOK_AUTH: ${{ secrets.RENDER_DEPLOY_HOOK_AUTH }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_AUTH" ]; then
+            echo "🚀 Deploying Auth Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_AUTH" --header 'Content-Type: application/json'
+            echo "✅ Auth Service deployment triggered"
+          fi
+          
+      - name: Deploy User Service to Render
+        env:
+          RENDER_DEPLOY_HOOK_USER: ${{ secrets.RENDER_DEPLOY_HOOK_USER }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_USER" ]; then
+            echo "🚀 Deploying User Service..."
+            curl --request POST --url "$RENDER_DEPLOY_HOOK_USER" --header 'Content-Type: application/json'
+            echo "✅ User Service deployment triggered"
+          fi
+          
+      - name: Deploy Frontend to Render
+        env:
+          RENDER_DEPLOY_HOOK_FRONTEND: ${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_FRONTEND" ]; then
+            echo "⚠️  RENDER_DEPLOY_HOOK_FRONTEND not configured. Skipping frontend deployment."
+            echo "Please add your Render deploy hooks to GitHub Secrets:"
+            echo "  - RENDER_DEPLOY_HOOK_FRONTEND (for frontend service)"
+          else
+            echo "🚀 Deploying Frontend to Render..."
+            curl --request POST \
+                 --url "$RENDER_DEPLOY_HOOK_FRONTEND" \
+                 --header 'Content-Type: application/json'
+            echo "✅ Frontend deployment triggered"
+          fi
+          
+      - name: Health Check (Optional)
+        run: |
+          echo "⏳ Waiting for services to be ready..."
+          sleep 10
+          echo "ℹ️  Manual health checks can be configured on Render dashboard"
 
