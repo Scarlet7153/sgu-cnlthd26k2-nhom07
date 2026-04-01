@@ -6,6 +6,7 @@ spring:
     name: product-service
   data:
     mongodb:
+      auto-index-creation: true
       uri: mongodb+srv://voduytoan:Voduytoan7153@pcshop.91getcf.mongodb.net/product_db?retryWrites=true&w=majority&appName=PCShop
 
 eureka:
