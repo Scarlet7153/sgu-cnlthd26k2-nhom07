@@ -1,0 +1,20 @@
+Assistant Data Accuracy Rules
+
+1) Do not fabricate canonical IDs, enum values, schema keys, index names, or integration endpoints.
+2) If exact production values are required and not present in repo context, ask user for source-of-truth first.
+3) After user provides canonical data, use only that data in code, tests, docs, and sample payloads.
+4) Keep sample payloads realistic, but mark clearly if any field is placeholder.
+5) Before merging test scripts, verify IDs and constants against source files.
+
+Source of truth for category IDs:
+- docs/categoryIdDictionary.txt
+
+Canonical category IDs:
+- CPU: 69ac61dba931fab39af1232e
+- GPU/VGA: 69ac61dba931fab39af1232f
+- Mainboard: 69ac61dba931fab39af12331
+- RAM: 69ac61dba931fab39af12330
+- PSU: 69ac61dba931fab39af12332
+- HardDisk/SSD/HDD: 69ac61dba931fab39af12334
+- CASE: 69ac61dba931fab39af12333
+- COOLER: 69ac61dba931fab39af12335

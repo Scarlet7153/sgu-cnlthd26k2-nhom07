@@ -1,0 +1,152 @@
+Kế hoạch mình sẽ thực hiện như sau.
+
+**Phạm Vi Triển Khai**
+1. Tách lõi AI thành một Python microservice độc lập.
+2. Dùng FastAPI làm API gateway cho hệ Agent.
+3. Áp dụng mô hình 3 agent:
+	1. Orchestrator Agent
+	2. DB Retrieval Agent
+	3. Web Retrieval Agent
+	4. Chạy vòng lặp ReAct đầy đủ: Thought -> Action -> Observation -> Decide next action.
+
+**Kế Hoạch Theo Giai Đoạn**
+1. Giai đoạn 1: Thiết kế kiến trúc chi tiết
+	1. Chốt contract API cho endpoint chat (input, output, error schema).
+	2. Thiết kế protocol giao tiếp giữa 3 agent (message envelope, task type, confidence, evidence).
+	3. Định nghĩa điều kiện dừng vòng lặp ReAct, số vòng tối đa, timeout, fallback.
+	4. Thiết kế chiến lược trộn kết quả Hybrid Search: full-text + vector.
+
+2. Giai đoạn 2: Khởi tạo microservice FastAPI
+	1. Tạo cấu trúc project chuẩn production (app, agents, tools, services, schemas, config).
+	2. Cấu hình LiteLLM làm lớp gọi model thống nhất.
+	3. Cấu hình MongoDB Atlas client + Atlas Search index binding.
+	4. Cấu hình environment theo profile dev/staging/prod.
+
+3. Giai đoạn 3: Xây DB Retrieval Agent
+	1. Tool full-text search (Atlas Search BM25/text).
+	2. Tool vector search (Atlas Vector Search + embedding từ SentenceTransformers).	
+	3. Tool hybrid re-ranking (kết hợp score lexical + semantic).
+	4. Chuẩn hóa output evidence: đoạn trích, score, nguồn dữ liệu.
+
+4. Giai đoạn 4: Xây Web Retrieval Agent
+	1. Tích hợp DuckDuckGoSearchTool.
+	2. Bổ sung fetch/summarize pipeline cho nguồn web.	
+	3. Cơ chế lọc nguồn nhiễu và deduplicate.
+	4. Gắn citation để Orchestrator dùng khi tổng hợp.
+
+5. Giai đoạn 5: Xây Orchestrator Agent theo ReAct
+	1. Dùng SmolAgents CodeAgent để điều phối đa bước.
+	2. Lập kế hoạch động: ưu tiên DB trước, fallback web khi thiếu bằng chứng.
+	3. Cho phép retry và tự sửa lỗi tool call.
+	4. Tổng hợp câu trả lời cuối cùng có nêu mức độ chắc chắn + nguồn tham chiếu.
+
+6. Giai đoạn 6: API và tích hợp hệ hiện có
+	1. Expose endpoint ví dụ /api/chat.
+	2. Hỗ trợ sessionId và context từ Next.js/Spring Boot.
+	3. Trả response chuẩn để backend Java dễ map.
+	4. Có health check và readiness endpoints để deploy.
+
+7. Giai đoạn 7: Quan sát hệ thống và kiểm thử
+	1. Logging theo từng bước ReAct (ẩn chain-of-thought nhạy cảm, chỉ log action/observation cần thiết).
+	2. Metrics: latency, số vòng lặp, tỉ lệ fallback web, token/cost.
+	3. Bộ test:
+		1. unit test cho tools
+		2. integration test cho agent flow
+		3. regression test cho các câu hỏi PC build thực tế.
+		4. Kiểm thử lỗi: model timeout, Mongo lỗi, web không phản hồi.
+
+8. Giai đoạn 8: Đóng gói và migration khỏi n8n
+	1. Dockerfile + docker-compose profile cho service mới.
+	2. Kế hoạch cutover:
+		1. chạy song song n8n và service mới
+		2. A/B routing
+		3. chuyển hoàn toàn khi đạt KPI.
+	3. Tài liệu runbook vận hành và rollback.
+
+**Deliverables Mình Sẽ Bàn Giao**
+	1. Mã nguồn microservice FastAPI hoàn chỉnh.
+	2. Cấu trúc MAS + ReAct loop rõ ràng, dễ mở rộng.
+	3. Bộ config LiteLLM để đổi model linh hoạt.
+	4. Bộ công cụ truy xuất Mongo Hybrid Search + Web Search.
+	5. API spec để tích hợp với Next.js/Spring Boot.
+	6. Tài liệu triển khai, vận hành, benchmark.
+
+**Nguyên Tắc Thiết Kế Mình Sẽ Áp Dụng**
+1. Ưu tiên dữ liệu nội bộ trước web.
+2. Trả lời có evidence, hạn chế bịa.
+3. Giới hạn vòng lặp để tránh runaway cost.
+4. Mỗi agent một trách nhiệm rõ ràng.
+5. Đảm bảo quan sát được và debug được.
+
+
+1. chat_histories (bản rút gọn)
+_id: string
+session_id: string, unique, bắt buộc
+account_id: string, nullable
+status: active | closed
+context_summary:
+budget_text: string | null
+budget_min: long | null
+budget_max: long | null
+purpose: string | null
+brand: string | null
+messages: array
+created_at: instant
+updated_at: instant
+expires_at: instant | null (nếu muốn tự dọn dữ liệu cũ)
+
+Mỗi phần tử messages:
+message_id: string
+role: user | assistant | system
+content: string
+products: array | null
+created_at: instant
+
+Mỗi phần tử products trong message:
+product_id: string
+category_id: string
+name: string
+price: long
+image: string | null
+url: string | null
+reason: string | null
+
+Index tối thiểu:
+unique: session_id
+index: account_id, updated_at desc
+optional TTL: expires_at
+pc_build_sessions (bản rút gọn)
+_id: string
+session_id: string, unique, bắt buộc
+account_id: string | null
+chat_history_id: string | null
+status: active | completed | abandoned
+requirements:
+budget_text: string | null
+budget_min: long | null
+budget_max: long | null
+purpose: string | null
+brand_preference: string | null
+selected_components: array
+compatibility_notes: array string
+total_price: long
+created_at: instant
+updated_at: instant
+expires_at: instant | null
+
+Mỗi phần tử selected_components:
+slot: CPU | MAINBOARD | RAM | GPU | SSD | PSU | CASE | COOLER
+product_id: string
+category_id: string
+name: string
+price: long
+quantity: int
+image: string | null
+url: string | null
+selected_at: instant
+
+Index tối thiểu:
+unique: session_id
+index: account_id, updated_at desc
+index: status, updated_at desc
+optional TTL: expires_at

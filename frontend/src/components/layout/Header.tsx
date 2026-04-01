@@ -25,6 +25,7 @@ const navLinks = [
   { label: "Trang chủ", to: "/" },
   { label: "Sản phẩm", to: "/products" },
   { label: "Build PC", to: "/pc-builder" },
+  { label: "AI Advisor", to: "/ai-advisor" },
   { label: "So sánh", to: "/compare" },
 ];
 
