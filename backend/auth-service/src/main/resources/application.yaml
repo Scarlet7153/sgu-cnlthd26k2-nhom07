@@ -1,39 +1,39 @@
-﻿server:
-  port: 8085
+server:
+  port: ${PORT:8085}
 
 spring:
   application:
-    name: auth-service
+    name: ${SPRING_APPLICATION_NAME:auth-service}
   data:
     mongodb:
-      uri: mongodb+srv://voduytoan:Voduytoan7153@pcshop.91getcf.mongodb.net/user_db?retryWrites=true&w=majority&appName=PCShop
+      uri: ${MONGODB_URI:mongodb+srv://voduytoan:Voduytoan7153@pcshop.91getcf.mongodb.net/user_db?retryWrites=true&w=majority&appName=PCShop}
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: pcshop7153@gmail.com
-    password: tvpwqiovicyfkbfq
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${EMAIL_USERNAME:pcshop7153@gmail.com}
+    password: ${EMAIL_PASSWORD:tvpwqiovicyfkbfq}
     properties:
       mail:
         smtp:
-          auth: true
+          auth: ${MAIL_SMTP_AUTH:true}
           starttls:
-            enable: true
-            required: true
+            enable: ${MAIL_SMTP_STARTTLS_ENABLE:true}
+            required: ${MAIL_SMTP_STARTTLS_REQUIRED:true}
 
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
   instance:
-    prefer-ip-address: true
+    prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
 
 jwt:
-  secret: pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256
-  access-token-expiration: 3600000
-  refresh-token-expiration: 604800000
+  secret: ${JWT_SECRET:pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256}
+  access-token-expiration: ${ACCESS_TOKEN_EXPIRATION:3600000}
+  refresh-token-expiration: ${REFRESH_TOKEN_EXPIRATION:604800000}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info}

@@ -1,13 +1,13 @@
 server:
-  port: 8761
+  port: ${PORT:8761}
 
 spring:
   application:
-    name: eureka-server
+    name: ${SPRING_APPLICATION_NAME:eureka-server}
 
 eureka:
   client:
-    register-with-eureka: false
-    fetch-registry: false
+    register-with-eureka: ${EUREKA_REGISTER_WITH_EUREKA:false}
+    fetch-registry: ${EUREKA_FETCH_REGISTRY:false}
   server:
-    enable-self-preservation: false
+    enable-self-preservation: ${EUREKA_ENABLE_SELF_PRESERVATION:false}

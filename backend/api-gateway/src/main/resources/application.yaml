@@ -1,9 +1,9 @@
 server:
-  port: 8080
+  port: ${PORT:8080}
 
 spring:
   application:
-    name: api-gateway
+    name: ${SPRING_APPLICATION_NAME:api-gateway}
   cloud:
     gateway:
       discovery:
@@ -14,11 +14,11 @@ spring:
         cors-configurations:
           '[/**]':
             allowedOrigins:
-              - "http://localhost:5173"
-              - "http://localhost:3000"
-              - "https://*.*.railway.app"  # Cho phép các domain của frontend deploy trên Railway
+              - "${FRONTEND_URL:http://localhost:5173}"
+              - "${FRONTEND_ALT_URL:http://localhost:3000}"
+              - "https://*.*.railway.app"
             allowedOriginPatterns:
-              - "*"                        # Mở tạm wildcard để tránh kẹt CORS lúc test
+              - "${CORS_ALLOWED_ORIGIN_PATTERN:*}"
             allowedMethods:
               - GET
               - POST
@@ -62,15 +62,15 @@ spring:
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
   instance:
-    prefer-ip-address: true
+    prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
 
 jwt:
-  secret: pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256
+  secret: ${JWT_SECRET:pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,gateway
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,gateway}

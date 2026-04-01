@@ -23,7 +23,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
       - key: SPRING_PROFILES_ACTIVE
         value: prod
@@ -38,7 +38,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
         
   - type: web
@@ -48,7 +48,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
         
   - type: web
@@ -58,7 +58,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
 
   - type: web
@@ -68,7 +68,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
 
   - type: web
@@ -78,7 +78,7 @@ services:
     dockerfilePath: Dockerfile
     healthCheckPath: /actuator/health
     envVars:
-      - key: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+      - key: EUREKA_URL
         value: https://pcshop-eureka-service.onrender.com/eureka/
       - key: FRONTEND_URL
         value: https://pcshop-frontend.onrender.com
@@ -94,5 +94,5 @@ services:
     rootDir: frontend
     dockerfilePath: Dockerfile
     envVars:
-      - key: VITE_API_URL
+      - key: VITE_API_BASE_URL
         value: https://pcshop-api-gateway.onrender.com/api
