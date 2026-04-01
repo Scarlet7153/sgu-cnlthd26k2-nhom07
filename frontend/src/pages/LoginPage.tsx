@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import logo from "@/assets/logo.png";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -12,7 +12,14 @@ export default function LoginPage() {
   document.title = "Đăng nhập - PCShop";
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { signIn } = useAuth();
+  const { user, signIn } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      navigate("/", { replace: true });
+    }
+  }, [user, navigate]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -21,9 +28,15 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await signIn(email, password);
+    const { error, requiresOtp } = await signIn(email, password);
     setLoading(false);
-    if (error) {
+    if (requiresOtp) {
+      toast({
+        title: "Tài khoản chưa xác thực",
+        description: "Vui lòng nhập mã OTP để kích hoạt tài khoản.",
+      });
+      navigate("/verify-otp", { state: { email } });
+    } else if (error) {
       toast({ title: "Đăng nhập thất bại", description: error, variant: "destructive" });
     } else {
       toast({ title: "Đăng nhập thành công!" });

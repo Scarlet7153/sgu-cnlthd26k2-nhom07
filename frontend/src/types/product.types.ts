@@ -9,7 +9,8 @@ export type CategoryType =
   | "psu"
   | "case"
   | "cooler"
-  | "monitor";
+  | "monitor"
+  | (string & {});
 
 export interface BaseProduct {
   id: string;

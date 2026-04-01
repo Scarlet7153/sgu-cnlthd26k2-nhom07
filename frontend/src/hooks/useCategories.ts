@@ -32,10 +32,14 @@ const codeToCategoryId = (code: string | null | undefined): CategoryType | null 
     COOLER: "cooler",
   };
 
-  return map[normalized] || null;
+  if (map[normalized]) return map[normalized];
+
+  // Fallback for newly created categories not in the predefined map.
+  const dynamicId = normalized.toLowerCase().replace(/\s+/g, "-");
+  return dynamicId || null;
 };
 
-const categoryMeta: Record<CategoryType, { icon: string; description: string }> = {
+const categoryMeta: Record<string, { icon: string; description: string }> = {
   cpu: { icon: "Cpu", description: "" },
   mainboard: { icon: "CircuitBoard", description: "" },
   vga: { icon: "Monitor", description: "" },

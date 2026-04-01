@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
-import { categories } from "@/data/categories";
 import { CategoryType, SortOption } from "@/types/product.types";
 import ProductCard from "@/components/shared/ProductCard";
 import EmptyState from "@/components/shared/EmptyState";
@@ -13,6 +12,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { formatPrice } from "@/lib/format";
 import { useProducts } from "@/hooks/useProducts";
 import { useBrands } from "@/hooks/useBrands";
+import { useCategories } from "@/hooks/useCategories";
 
 const ITEMS_PER_PAGE = 16;
 
@@ -350,6 +350,12 @@ export default function ProductListPage() {
   }, [searchParams, RESERVED_QUERY_KEYS]);
 
   const [sort, setSort] = useState<SortOption>("name-asc");
+  const { data: menuCategories = [] } = useCategories();
+
+  const currentCategoryName = useMemo(() => {
+    if (!categoryParam) return "";
+    return menuCategories.find((c) => c.id === categoryParam)?.name || categoryParam.toUpperCase();
+  }, [menuCategories, categoryParam]);
 
   // Nếu có categoryParam/searchQuery hoặc đang chọn sort khác mặc định,
   // ta tải nhiều sản phẩm hơn và xử lý sắp xếp/lọc phía client để đảm bảo sort hoạt động đúng.
@@ -365,7 +371,7 @@ export default function ProductListPage() {
   const products = productsData?.content || [];
 
   // Sidebar facets (brand/price/spec) must use the full scope, not only current paged items.
-  const { data: filterProductsData } = useProducts({
+  const { data: filterProductsData, isLoading: isFilterProductsLoading } = useProducts({
     page: 0,
     size: 1000,
     categoryId: categoryParam || undefined,
@@ -373,7 +379,7 @@ export default function ProductListPage() {
     enabled: !isClientProcessing,
   });
   const filterProducts = useMemo(
-    () => (isClientProcessing ? products : (filterProductsData?.content || products)),
+    () => (isClientProcessing ? products : (filterProductsData?.content || [])),
     [isClientProcessing, products, filterProductsData]
   );
 
@@ -404,7 +410,7 @@ export default function ProductListPage() {
   document.title = searchQuery
     ? `Tìm kiếm "${searchQuery}" - PCShop`
     : categoryParam
-      ? `${categories.find((c) => c.id === categoryParam)?.name || "Sản phẩm"} - PCShop`
+      ? `${currentCategoryName || "Sản phẩm"} - PCShop`
       : "Tất cả sản phẩm - PCShop";
 
   // Use brands from DB API, fallback to filter products if DB brands not ready
@@ -412,10 +418,13 @@ export default function ProductListPage() {
     if (dbBrands && dbBrands.length > 0) {
       return dbBrands;
     }
+    if (!isClientProcessing && isFilterProductsLoading) {
+      return [];
+    }
     // Fallback: calculate from filterProducts (in case DB fetch fails)
     const filtered = categoryParam ? filterProducts.filter((p) => p.category === categoryParam) : filterProducts;
     return Array.from(new Set<string>(filtered.map((p) => String(p.brand)))).sort();
-  }, [dbBrands, categoryParam, filterProducts]);
+  }, [dbBrands, categoryParam, filterProducts, isClientProcessing, isFilterProductsLoading]);
 
   // Count products per brand
   const brandCounts = useMemo(() => {
@@ -517,14 +526,26 @@ export default function ProductListPage() {
     let result = [...products];
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          Object.values(p.specs).some((v) => String(v).toLowerCase().includes(q))
-      );
+      const keywords = q.split(/\s+/).filter(k => k.length > 2);
+      
+      result = result.filter((p) => {
+        const name = p.name.toLowerCase();
+        const brand = p.brand.toLowerCase();
+        const description = p.description.toLowerCase();
+        const specs = Object.values(p.specs || {}).map(v => String(v).toLowerCase()).join(" ");
+        
+        // If no keywords (all < 3 chars), fall back to substring search
+        if (keywords.length === 0) {
+          return name.includes(q) || brand.includes(q) || description.includes(q) || specs.includes(q);
+        }
+        
+        // For keyword-based search, at least 1 keyword must match
+        const matchCount = keywords.filter(k =>
+          name.includes(k) || brand.includes(k) || description.includes(k) || specs.includes(k)
+        ).length;
+        
+        return matchCount >= Math.max(1, keywords.length - 1);
+      });
     }
     if (categoryParam) result = result.filter((p) => p.category === categoryParam);
 
@@ -649,12 +670,12 @@ export default function ProductListPage() {
       <div className="border border-t-0 border-border bg-card px-4 py-4">
         <h3 className="mb-3 text-sm font-bold text-foreground">Linh kiện máy tính</h3>
         <div className="flex flex-col gap-0.5">
-          {categories.map((c) => (
+          {menuCategories.map((c) => (
             <button
               key={c.id}
               onClick={() => {
                 const newParams = new URLSearchParams();
-                newParams.set("category", c.id);
+                newParams.set("category", c.id as string);
                 setSearchParams(newParams);
                 setPage(1);
               }}
@@ -693,7 +714,7 @@ export default function ProductListPage() {
       <div className="border border-t-0 border-border bg-card px-4 py-4">
         <h3 className="mb-3 text-sm font-bold uppercase text-foreground">Thương hiệu</h3>
         <div className="space-y-1.5">
-          {brandsLoading ? (
+          {(brandsLoading || (!isClientProcessing && isFilterProductsLoading)) ? (
             // Loading skeleton
             Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -749,7 +770,7 @@ export default function ProductListPage() {
           {searchQuery
             ? `Tìm kiếm "${searchQuery}"`
             : categoryParam
-              ? categories.find((c) => c.id === categoryParam)?.name
+              ? currentCategoryName
               : "Tất cả sản phẩm"}
         </span>
       </nav>

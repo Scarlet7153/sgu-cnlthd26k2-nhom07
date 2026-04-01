@@ -41,6 +41,9 @@ public class Order {
 
     private List<OrderItem> items; // embedded snapshot
 
+    @Field("shipping_address")
+    private ShippingAddress shippingAddress;
+
     private Long total; // VNĐ integer
 
     private String note;

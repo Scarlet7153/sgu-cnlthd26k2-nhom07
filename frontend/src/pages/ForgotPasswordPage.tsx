@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import logo from "@/assets/logo.png";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,8 +9,17 @@ import { useToast } from "@/hooks/use-toast";
 import { Cpu } from "lucide-react";
 
 export default function ForgotPasswordPage() {
-  document.title = "Quên mật khẩu - TechPC";
+  document.title = "Quên mật khẩu - PCShop";
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      navigate("/", { replace: true });
+    }
+  }, [user, navigate]);
+
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -27,9 +38,8 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-[80vh] items-center justify-center px-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <Link to="/" className="inline-flex items-center gap-2 text-2xl font-bold">
-            <Cpu className="h-8 w-8 text-primary" />
-            <span className="text-gradient-primary">TechPC</span>
+          <Link to="/" className="inline-flex items-center gap-2 text-xl font-bold">
+            <img src={logo} alt="PCShop Logo" className="h-10 w-auto object-contain transition-all duration-300" />
           </Link>
           <h1 className="mt-6 text-2xl font-bold text-foreground">Quên mật khẩu</h1>
         </div>

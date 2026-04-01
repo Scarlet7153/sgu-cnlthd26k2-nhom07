@@ -22,15 +22,12 @@ public class Account {
     @Id
     private String id;
 
-    @Indexed(unique = true)
-    private String username;
-
     private String password; // bcrypt hashed
-
-    private String name;
 
     @Indexed(unique = true)
     private String email;
+
+    private String fullName;
 
     @Field("address_details")
     private AddressDetails addressDetails;
@@ -42,7 +39,7 @@ public class Account {
     private String role = "USER"; // USER | ADMIN
 
     @Builder.Default
-    private String status = "active"; // active | inactive | banned
+    private String status = "active"; // active | unverified | inactive | banned
 
     @CreatedDate
     @Field("created_at")

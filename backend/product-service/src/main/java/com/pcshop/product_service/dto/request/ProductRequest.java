@@ -35,4 +35,5 @@ public class ProductRequest {
     private Integer capacityGb;
     private String color;
     private Map<String, String> specsRaw;
+    private String descriptionHtml;
 }

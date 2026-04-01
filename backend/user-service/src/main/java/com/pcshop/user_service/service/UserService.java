@@ -1,5 +1,6 @@
 package com.pcshop.user_service.service;
 
+import com.pcshop.user_service.dto.request.ChangePasswordRequest;
 import com.pcshop.user_service.dto.request.UpdateProfileRequest;
 import com.pcshop.user_service.dto.request.UpdateStatusRequest;
 import com.pcshop.user_service.dto.response.UserResponse;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -23,6 +25,7 @@ import java.util.List;
 public class UserService {
 
     private final AccountRepository accountRepository;
+    private final PasswordEncoder passwordEncoder;
 
     // ==================== Profile ====================
 
@@ -34,8 +37,8 @@ public class UserService {
     public UserResponse updateProfile(String accountId, UpdateProfileRequest request) {
         Account account = findAccountById(accountId);
 
-        if (StringUtils.hasText(request.getName())) {
-            account.setName(request.getName());
+        if (StringUtils.hasText(request.getFullName())) {
+            account.setFullName(request.getFullName());
         }
         if (StringUtils.hasText(request.getEmail())) {
             // Check email unique
@@ -63,8 +66,22 @@ public class UserService {
         }
 
         account = accountRepository.save(account);
-        log.info("Profile updated for user: {}", account.getUsername());
+        log.info("Profile updated for user: {}", account.getEmail());
         return toUserResponse(account);
+    }
+
+    // ==================== Change Password ====================
+
+    public void changePassword(String accountId, ChangePasswordRequest request) {
+        Account account = findAccountById(accountId);
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), account.getPassword())) {
+            throw new BadRequestException("Current password is incorrect");
+        }
+
+        account.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        accountRepository.save(account);
+        log.info("Password changed for user: {}", account.getEmail());
     }
 
     // ==================== Admin Operations ====================
@@ -88,7 +105,7 @@ public class UserService {
 
         account.setStatus(request.getStatus());
         account = accountRepository.save(account);
-        log.info("User {} status updated to {}", account.getUsername(), request.getStatus());
+        log.info("User {} status updated to {}", account.getEmail(), request.getStatus());
         return toUserResponse(account);
     }
 
@@ -102,8 +119,7 @@ public class UserService {
     private UserResponse toUserResponse(Account account) {
         return UserResponse.builder()
                 .id(account.getId())
-                .username(account.getUsername())
-                .name(account.getName())
+                .fullName(account.getFullName())
                 .email(account.getEmail())
                 .phone(account.getPhone())
                 .role(account.getRole())

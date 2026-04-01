@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/shared/EmptyState";
 
 export default function CartPage() {
-  document.title = "Giỏ hàng - TechPC";
+  document.title = "Giỏ hàng - PCShop";
   const { items, totalPrice, removeFromCart, updateQuantity } = useCart();
 
   if (items.length === 0) {

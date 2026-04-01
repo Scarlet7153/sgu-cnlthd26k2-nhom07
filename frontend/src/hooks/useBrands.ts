@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import axiosClient from '@/lib/axiosClient';
+import axiosClient, { unwrapApiData } from '@/lib/axiosClient';
 
 /**
  * Hook to fetch and cache brand list from backend.
@@ -27,7 +27,7 @@ export const useBrands = () => {
     const fetchBrands = async () => {
       try {
         const response = await axiosClient.get('/products/brands');
-        const brandList = response.data.data || [];
+        const brandList = unwrapApiData<string[]>(response) || [];
         
         // Filter out null, undefined, or empty values
         const cleanedBrands = brandList

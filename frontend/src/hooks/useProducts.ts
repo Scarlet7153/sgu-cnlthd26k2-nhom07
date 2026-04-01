@@ -297,13 +297,13 @@ export const useProducts = ({
             m.codeToId[normalizeCategoryCode(categoryId)];
         }
 
-        endpoint = `/products/search?keyword=${encodeURIComponent(keyword)}&page=${page}&size=${size}${resolvedCategoryId ? `&categoryID=${encodeURIComponent(resolvedCategoryId)}` : ""}`;
+        endpoint = `/products/search?keyword=${encodeURIComponent(keyword)}&page=${page}&size=${size}${resolvedCategoryId ? `&categoryId=${encodeURIComponent(resolvedCategoryId)}` : ""}`;
       } else if (categoryId && (minPrice !== undefined || maxPrice !== undefined)) {
         const m = await ensureMappings();
         resolvedCategoryId =
           (await resolveCategoryIdByCode(categoryId)) ||
           m.codeToId[normalizeCategoryCode(categoryId)];
-        endpoint = `/products/filter?categoryID=${resolvedCategoryId || categoryId}&minPrice=${minPrice || 0}&maxPrice=${maxPrice || 999999999}&page=${page}&size=${size}`;
+        endpoint = `/products/filter?categoryId=${resolvedCategoryId || categoryId}&minPrice=${minPrice || 0}&maxPrice=${maxPrice || 999999999}&page=${page}&size=${size}`;
       } else if (categoryId) {
         categoryCodeHint = normalizeCategoryCode(categoryId);
         // Let backend resolve uppercase category code directly to avoid extra round trips.

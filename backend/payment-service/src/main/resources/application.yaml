@@ -1,32 +1,32 @@
 server:
-  port: 8084
+  port: ${PORT:8084}
 
 spring:
   application:
-    name: payment-service
+    name: ${SPRING_APPLICATION_NAME:payment-service}
   data:
     mongodb:
-      uri: mongodb+srv://voduytoan:Voduytoan7153@pcshop.91getcf.mongodb.net/payment_db?retryWrites=true&w=majority&appName=PCShop
+      uri: ${MONGODB_URI:mongodb+srv://voduytoan:Voduytoan7153@pcshop.91getcf.mongodb.net/payment_db?retryWrites=true&w=majority&appName=PCShop}
 
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
   instance:
-    prefer-ip-address: true
+    prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
 
 # MoMo Sandbox Configuration
 momo:
-  partner-code: MOMO
-  access-key: F8BBA842ECF85
-  secret-key: K951B6PE1waDMi640xX08PD3vg6EkVlz
-  api-endpoint: https://test-payment.momo.vn/v2/gateway/api/create
-  redirect-url: http://localhost:5173/payment/result
-  ipn-url: http://localhost:8080/api/payments/callback/momo
-  request-type: payWithMethod
+  partner-code: ${MOMO_PARTNER_CODE:MOMO}
+  access-key: ${MOMO_ACCESS_KEY:F8BBA842ECF85}
+  secret-key: ${MOMO_SECRET_KEY:K951B6PE1waDMi640xX08PD3vg6EkVlz}
+  api-endpoint: ${MOMO_API_ENDPOINT:https://test-payment.momo.vn/v2/gateway/api/create}
+  redirect-url: ${FRONTEND_URL:http://localhost:5173}/payment/result
+  ipn-url: ${BACKEND_URL:http://localhost:8080}/api/payments/callback/momo
+  request-type: ${MOMO_REQUEST_TYPE:payWithMethod}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info}

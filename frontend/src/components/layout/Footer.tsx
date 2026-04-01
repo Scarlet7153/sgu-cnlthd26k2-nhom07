@@ -9,7 +9,7 @@ export default function Footer() {
           <div>
             <Link to="/" className="flex items-center gap-2 text-lg font-bold">
               <Cpu className="h-6 w-6 text-primary" />
-              <span className="text-gradient-primary">TechPC</span>
+              <span className="text-gradient-primary">PCShop</span>
             </Link>
             <p className="mt-3 text-sm text-muted-foreground">
               Chuyên cung cấp linh kiện PC chính hãng, giá tốt nhất thị trường.
@@ -43,7 +43,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="mt-8 border-t border-border pt-6 text-center text-xs text-muted-foreground">
-          © 2026 TechPC. All rights reserved.
+          © 2026 PCShop. All rights reserved.
         </div>
       </div>
     </footer>

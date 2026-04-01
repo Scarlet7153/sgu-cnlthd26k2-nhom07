@@ -1,5 +1,6 @@
 package com.pcshop.user_service.controller;
 
+import com.pcshop.user_service.dto.request.ChangePasswordRequest;
 import com.pcshop.user_service.dto.request.UpdateProfileRequest;
 import com.pcshop.user_service.dto.request.UpdateStatusRequest;
 import com.pcshop.user_service.dto.response.ApiResponse;
@@ -37,6 +38,14 @@ public class UserController {
             @Valid @RequestBody UpdateProfileRequest request) {
         UserResponse response = userService.updateProfile(principal.getId(), request);
         return ResponseEntity.ok(ApiResponse.ok("Profile updated", response));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(principal.getId(), request);
+        return ResponseEntity.ok(ApiResponse.ok("Password changed successfully", null));
     }
 
     // ==================== Admin Operations ====================
