@@ -28,7 +28,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -73,7 +72,7 @@ public class ProductService {
     }
 
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable, boolean includeInactiveCategory) {
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
         if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -83,22 +82,22 @@ public class ProductService {
         }
 
         return findWithActiveCategoryFilter(
-                Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(catId.get()),
-                pageable
-        );
+                Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(new ObjectId(catId.get())),
+                pageable);
     }
 
     public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable) {
         return searchProducts(keyword, categoryId, pageable, false);
     }
 
-    public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
+    public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable,
+            boolean includeInactiveCategory) {
         Optional<String> keywordOpt = Optional.ofNullable(keyword).filter(k -> !k.trim().isEmpty());
         if (keywordOpt.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
 
         String sanitizedKeyword = InputValidationUtil.validateSearchKeyword(keyword);
         Criteria baseCriteria = MongoQueryBuilder.builder()
@@ -114,14 +113,18 @@ public class ProductService {
     }
 
     public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable) {
-        return filterByPriceRange(categoryId, minPrice, maxPrice, pageable, false);
+        if (categoryId == null || categoryId.trim().isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return productRepository.findByCategoryAndPriceRange(categoryId, minPrice, maxPrice, pageable);
     }
 
-    public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable, boolean includeInactiveCategory) {
+    public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable,
+            boolean includeInactiveCategory) {
         // Validate price range
         InputValidationUtil.validatePriceRange(minPrice, maxPrice);
-        
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+
+        Optional<String> catId = parseObjectId(categoryId);
         if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -146,7 +149,7 @@ public class ProductService {
 
         try {
             Product product = Product.builder()
-                    .categoryId(new ObjectId(request.getCategoryId()))
+                    .categoryId(request.getCategoryId())
                     .name(request.getName())
                     .model(request.getModel())
                     .url(request.getUrl())
@@ -154,18 +157,21 @@ public class ProductService {
                     .image(request.getImage())
                     .socket(request.getSocket())
                     .ramType(request.getRamType())
-                    .hasIgpu(request.getHasIgpu())
-                    .igpuName(request.getIgpuName())
+                    .hasIGpu(request.getHasIgpu())
+                    .iGpuName(request.getIgpuName())
                     .tdpW(request.getTdpW())
                     .cores(request.getCores())
                     .threads(request.getThreads())
                     .baseClockGhz(request.getBaseClockGhz())
                     .boostClockGhz(request.getBoostClockGhz())
+                    .formFactor(request.getFormFactor())
+                    .capacityGb(request.getCapacityGb())
+                    .color(request.getColor())
                     .specsRaw(request.getSpecsRaw())
-                    .descriptionHtml(request.getDescriptionHtml())
                     .build();
 
-            return productRepository.save(product);
+            product = productRepository.save(product);
+            return product;
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(ProductConstants.ERROR_INVALID_CATEGORY_ID + request.getCategoryId());
         }
@@ -179,11 +185,7 @@ public class ProductService {
             if (!categoryRepository.existsById(categoryId)) {
                 throw new ResourceNotFoundException("Category", "id", categoryId);
             }
-            try {
-                product.setCategoryId(new ObjectId(categoryId));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException(ProductConstants.ERROR_INVALID_CATEGORY_ID + categoryId);
-            }
+            product.setCategoryId(categoryId);
         });
 
         updateProductField(product::setName, request.getName());
@@ -193,13 +195,16 @@ public class ProductService {
         updateProductField(product::setImage, request.getImage());
         updateProductField(product::setSocket, request.getSocket());
         updateProductField(product::setRamType, request.getRamType());
-        updateProductField(product::setHasIgpu, request.getHasIgpu());
-        updateProductField(product::setIgpuName, request.getIgpuName());
+        updateProductField(product::setHasIGpu, request.getHasIgpu());
+        updateProductField(product::setIGpuName, request.getIgpuName());
         updateProductField(product::setTdpW, request.getTdpW());
         updateProductField(product::setCores, request.getCores());
         updateProductField(product::setThreads, request.getThreads());
         updateProductField(product::setBaseClockGhz, request.getBaseClockGhz());
         updateProductField(product::setBoostClockGhz, request.getBoostClockGhz());
+        updateProductField(product::setFormFactor, request.getFormFactor());
+        updateProductField(product::setCapacityGb, request.getCapacityGb());
+        updateProductField(product::setColor, request.getColor());
         updateProductField(product::setSpecsRaw, request.getSpecsRaw());
         updateProductField(product::setDescriptionHtml, request.getDescriptionHtml());
 
@@ -224,7 +229,8 @@ public class ProductService {
     @Cacheable(cacheNames = CacheConfig.BRANDS_CACHE)
     public List<String> getBrands() {
         // findDistinct chỉ lấy field brand thay vì load full document.
-        List<String> brands = mongoTemplate.findDistinct(new Query(), ProductConstants.FIELD_BRAND, Product.class, String.class);
+        List<String> brands = mongoTemplate.findDistinct(new Query(), ProductConstants.FIELD_BRAND, Product.class,
+                String.class);
 
         return brands.stream()
                 .filter(b -> b != null && !b.trim().isEmpty())
@@ -237,16 +243,17 @@ public class ProductService {
         return searchBySpec(specField, specValue, categoryId, pageable, false);
     }
 
-    public Page<Product> searchBySpec(String specField, String specValue, String categoryId, Pageable pageable, boolean includeInactiveCategory) {
+    public Page<Product> searchBySpec(String specField, String specValue, String categoryId, Pageable pageable,
+            boolean includeInactiveCategory) {
         // Validate and sanitize inputs to prevent NoSQL injection
         InputValidationUtil.validateSpecField(specField);
         String sanitizedValue = InputValidationUtil.sanitizeSpecValue(specValue);
-        
+
         if (sanitizedValue.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
 
         Criteria baseCriteria = MongoQueryBuilder.builder()
                 .withSpecField(Optional.of(specField), Optional.of(sanitizedValue))
@@ -273,7 +280,8 @@ public class ProductService {
         baseOperations.add(createFacetOperation(dataPipeline));
 
         Aggregation aggregation = Aggregation.newAggregation(baseOperations);
-        AggregationResults<Document> results = mongoTemplate.aggregate(aggregation, ProductConstants.COLLECTION_PRODUCTS, Document.class);
+        AggregationResults<Document> results = mongoTemplate.aggregate(aggregation,
+                ProductConstants.COLLECTION_PRODUCTS, Document.class);
 
         return toProductPage(results.getUniqueMappedResult(), pageable);
     }
@@ -281,7 +289,8 @@ public class ProductService {
     private List<AggregationOperation> buildBaseAggregationOperations(Criteria productCriteria) {
         List<AggregationOperation> operations = new ArrayList<>();
         operations.add(Aggregation.match(productCriteria));
-        operations.add(Aggregation.lookup(ProductConstants.COLLECTION_CATEGORIES, ProductConstants.FIELD_CATEGORY_ID, ProductConstants.FIELD_ID, ProductConstants.CATEGORY_DOCS_FIELD));
+        operations.add(Aggregation.lookup(ProductConstants.COLLECTION_CATEGORIES, ProductConstants.FIELD_CATEGORY_ID,
+                ProductConstants.FIELD_ID, ProductConstants.CATEGORY_DOCS_FIELD));
         operations.add(Aggregation.unwind(ProductConstants.CATEGORY_DOCS_FIELD));
         operations.add(Aggregation.match(Criteria.where(ProductConstants.CATEGORY_ACTIVE_FIELD).is(true)));
         return operations;
@@ -331,26 +340,21 @@ public class ProductService {
                 .orElse(0L);
     }
 
-    private Optional<ObjectId> parseObjectId(String value) {
+    private Optional<String> parseObjectId(String value) {
         return Optional.ofNullable(value)
-                .filter(v -> !v.trim().isEmpty())
-                .flatMap(v -> {
-                    try {
-                        return Optional.of(new ObjectId(v.trim()));
-                    } catch (IllegalArgumentException e) {
-                        return Optional.empty();
-                    }
-                });
+                .map(String::trim)
+                .filter(v -> !v.isEmpty() && ObjectId.isValid(v));
     }
 
-    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId.toString()")
-    private boolean isCategoryActive(ObjectId categoryId) {
+    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId")
+    private boolean isCategoryActive(String categoryId) {
         return Optional.ofNullable(categoryId)
+                .map(String::trim)
+                .filter(ObjectId::isValid)
                 .map(id -> {
                     Query query = new Query(new Criteria().andOperator(
-                            Criteria.where(ProductConstants.FIELD_ID).is(id),
-                            Criteria.where(ProductConstants.FIELD_IS_ACTIVE).is(true)
-                    ));
+                            Criteria.where(ProductConstants.FIELD_ID).is(new ObjectId(id)),
+                            Criteria.where(ProductConstants.FIELD_IS_ACTIVE).is(true)));
                     return mongoTemplate.exists(query, ProductConstants.COLLECTION_CATEGORIES);
                 })
                 .orElse(false);

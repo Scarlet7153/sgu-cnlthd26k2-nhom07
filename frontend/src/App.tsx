@@ -21,6 +21,8 @@ const CartPage = lazy(() => import("./pages/CartPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const ComparePage = lazy(() => import("./pages/ComparePage"));
 const PcBuilderPage = lazy(() => import("./pages/PcBuilderPage"));
+const ChatbotAdvisorPage = lazy(() => import("./pages/ChatbotAdvisorPage"));
+const AdvisorBuildPage = lazy(() => import("./pages/AdvisorBuildPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const OTPVerificationPage = lazy(() => import("./pages/OTPVerificationPage"));
@@ -57,7 +59,7 @@ function PageFallback() {
 function AppRoutes() {
   const location = useLocation();
   const queryClient = useQueryClient();
-  
+
   // Check if current route is admin
   const isAdminRoute = location.pathname.startsWith("/admin");
 
@@ -101,6 +103,8 @@ function AppRoutes() {
             <Route path="/checkout" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
             <Route path="/compare" element={<ComparePage />} />
             <Route path="/pc-builder" element={<PcBuilderPage />} />
+            <Route path="/ai-advisor" element={<ChatbotAdvisorPage />} />
+            <Route path="/ai-advisor/build" element={<AdvisorBuildPage />} />
             <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
             <Route path="/signup" element={<GuestRoute><SignupPage /></GuestRoute>} />
             <Route path="/verify-otp" element={<GuestRoute><OTPVerificationPage /></GuestRoute>} />

@@ -13,11 +13,10 @@ import java.util.List;
 @Repository
 public interface ProductRepository extends MongoRepository<Product, String> {
 
-    @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryId': ?0 }")
-    Page<Product> findByCategoryId(ObjectId categoryId, Pageable pageable);
+    Page<Product> findByCategoryId(String categoryId, Pageable pageable);
 
     @org.springframework.data.mongodb.repository.Query(value = "{ 'categoryId': ?0 }")
-    List<Product> findByCategoryId(ObjectId categoryId);
+    List<Product> findByCategoryId(String categoryId);
 
     Page<Product> findBySocket(String socket, Pageable pageable);
 
@@ -25,7 +24,7 @@ public interface ProductRepository extends MongoRepository<Product, String> {
     Page<Product> searchByName(String keyword, Pageable pageable);
 
     @Query(value = "{ 'categoryId': ?0, 'price': { $gte: ?1, $lte: ?2 } }")
-    Page<Product> findByCategoryAndPriceRange(ObjectId categoryId, Long minPrice, Long maxPrice, Pageable pageable);
+    Page<Product> findByCategoryAndPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable);
 
-    long countByCategoryId(ObjectId categoryId);
+    long countByCategoryId(String categoryId);
 }
