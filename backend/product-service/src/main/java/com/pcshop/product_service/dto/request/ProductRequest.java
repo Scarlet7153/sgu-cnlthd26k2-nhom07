@@ -29,7 +29,10 @@ public class ProductRequest {
     private Integer tdpW;
     private Integer cores;
     private Integer threads;
-    private Double baseClockGhz;
-    private Double boostClockGhz;
-    private Map<String, Object> specsRaw;
+    private Float baseClockGhz;
+    private Float boostClockGhz;
+    private String formFactor;
+    private Integer capacityGb;
+    private String color;
+    private Map<String, String> specsRaw;
 }

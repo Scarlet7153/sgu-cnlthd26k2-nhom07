@@ -48,11 +48,7 @@ public class ProductService {
         if (categoryId == null || categoryId.trim().isEmpty()) {
             return Page.empty(pageable);
         }
-        try {
-            return productRepository.findByCategoryId(new ObjectId(categoryId), pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
-        }
+        return productRepository.findByCategoryId(categoryId, pageable);
     }
 
     public Page<Product> searchProducts(String keyword, String categoryId, Pageable pageable) {
@@ -83,15 +79,10 @@ public class ProductService {
 
         Query query;
         if (categoryId != null && !categoryId.trim().isEmpty()) {
-            try {
-                ObjectId catId = new ObjectId(categoryId);
-                query = new Query(new Criteria().andOperator(
-                        Criteria.where("categoryId").is(catId),
-                        searchCriteria
-                ));
-            } catch (IllegalArgumentException e) {
-                return Page.empty(pageable);
-            }
+            query = new Query(new Criteria().andOperator(
+                    Criteria.where("categoryId").is(categoryId),
+                    searchCriteria
+            ));
         } else {
             query = new Query(searchCriteria);
         }
@@ -107,11 +98,7 @@ public class ProductService {
         if (categoryId == null || categoryId.trim().isEmpty()) {
             return Page.empty(pageable);
         }
-        try {
-            return productRepository.findByCategoryAndPriceRange(new ObjectId(categoryId), minPrice, maxPrice, pageable);
-        } catch (IllegalArgumentException e) {
-            return Page.empty(pageable);
-        }
+        return productRepository.findByCategoryAndPriceRange(categoryId, minPrice, maxPrice, pageable);
     }
 
     public Product createProduct(ProductRequest request) {
@@ -120,31 +107,30 @@ public class ProductService {
             throw new ResourceNotFoundException("Category", "id", request.getCategoryId());
         }
 
-        try {
-            Product product = Product.builder()
-                    .categoryId(new ObjectId(request.getCategoryId()))
-                    .name(request.getName())
-                    .model(request.getModel())
-                    .url(request.getUrl())
-                    .price(request.getPrice())
-                    .image(request.getImage())
-                    .socket(request.getSocket())
-                    .ramType(request.getRamType())
-                    .hasIgpu(request.getHasIgpu())
-                    .igpuName(request.getIgpuName())
-                    .tdpW(request.getTdpW())
-                    .cores(request.getCores())
-                    .threads(request.getThreads())
-                    .baseClockGhz(request.getBaseClockGhz())
-                    .boostClockGhz(request.getBoostClockGhz())
-                    .specsRaw(request.getSpecsRaw())
-                    .build();
+        Product product = Product.builder()
+                .categoryId(request.getCategoryId())
+                .name(request.getName())
+                .model(request.getModel())
+                .url(request.getUrl())
+                .price(request.getPrice())
+                .image(request.getImage())
+                .socket(request.getSocket())
+                .ramType(request.getRamType())
+                .hasIGpu(request.getHasIgpu())
+                .iGpuName(request.getIgpuName())
+                .tdpW(request.getTdpW())
+                .cores(request.getCores())
+                .threads(request.getThreads())
+                .baseClockGhz(request.getBaseClockGhz())
+                .boostClockGhz(request.getBoostClockGhz())
+                .formFactor(request.getFormFactor())
+                .capacityGb(request.getCapacityGb())
+                .color(request.getColor())
+                .specsRaw(request.getSpecsRaw())
+                .build();
 
-            product = productRepository.save(product);
-            return product;
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid category ID format: " + request.getCategoryId());
-        }
+        product = productRepository.save(product);
+        return product;
     }
 
     public Product updateProduct(String id, ProductRequest request) {
@@ -154,11 +140,7 @@ public class ProductService {
             if (!categoryRepository.existsById(request.getCategoryId())) {
                 throw new ResourceNotFoundException("Category", "id", request.getCategoryId());
             }
-            try {
-                product.setCategoryId(new ObjectId(request.getCategoryId()));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Invalid category ID format: " + request.getCategoryId());
-            }
+            product.setCategoryId(request.getCategoryId());
         }
 
         if (request.getName() != null) product.setName(request.getName());
@@ -168,13 +150,16 @@ public class ProductService {
         if (request.getImage() != null) product.setImage(request.getImage());
         if (request.getSocket() != null) product.setSocket(request.getSocket());
         if (request.getRamType() != null) product.setRamType(request.getRamType());
-        if (request.getHasIgpu() != null) product.setHasIgpu(request.getHasIgpu());
-        if (request.getIgpuName() != null) product.setIgpuName(request.getIgpuName());
+        if (request.getHasIgpu() != null) product.setHasIGpu(request.getHasIgpu());
+        if (request.getIgpuName() != null) product.setIGpuName(request.getIgpuName());
         if (request.getTdpW() != null) product.setTdpW(request.getTdpW());
         if (request.getCores() != null) product.setCores(request.getCores());
         if (request.getThreads() != null) product.setThreads(request.getThreads());
         if (request.getBaseClockGhz() != null) product.setBaseClockGhz(request.getBaseClockGhz());
         if (request.getBoostClockGhz() != null) product.setBoostClockGhz(request.getBoostClockGhz());
+        if (request.getFormFactor() != null) product.setFormFactor(request.getFormFactor());
+        if (request.getCapacityGb() != null) product.setCapacityGb(request.getCapacityGb());
+        if (request.getColor() != null) product.setColor(request.getColor());
         if (request.getSpecsRaw() != null) product.setSpecsRaw(request.getSpecsRaw());
 
         product = productRepository.save(product);
