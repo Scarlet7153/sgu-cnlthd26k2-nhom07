@@ -28,7 +28,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -73,7 +72,7 @@ public class ProductService {
     }
 
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable, boolean includeInactiveCategory) {
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
         if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -83,7 +82,7 @@ public class ProductService {
         }
 
         return findWithActiveCategoryFilter(
-                Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(catId.get()),
+                Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(new ObjectId(catId.get())),
                 pageable);
     }
 
@@ -98,7 +97,7 @@ public class ProductService {
             return Page.empty(pageable);
         }
 
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
 
         String sanitizedKeyword = InputValidationUtil.validateSearchKeyword(keyword);
         Criteria baseCriteria = MongoQueryBuilder.builder()
@@ -110,31 +109,7 @@ public class ProductService {
             return executePaginatedQuery(baseCriteria, pageable);
         }
 
-        // Build "contains all tokens" regex per field, e.g.
-        // (?i)(?=.*AMD)(?=.*9800x3d).*
-        String lookAheadRegex = tokens.stream()
-                .map(token -> "(?=.*" + Pattern.quote(token) + ")")
-                .collect(Collectors.joining("", "", ".*"));
-
-        Criteria searchCriteria = new Criteria().orOperator(
-                Criteria.where("name").regex(lookAheadRegex, "i"),
-                Criteria.where("model").regex(lookAheadRegex, "i"),
-                Criteria.where("socket").regex(lookAheadRegex, "i"));
-
-        Query query;
-        if (categoryId != null && !categoryId.trim().isEmpty()) {
-            query = new Query(new Criteria().andOperator(
-                    Criteria.where("categoryId").is(categoryId),
-                    searchCriteria));
-        } else {
-            query = new Query(searchCriteria);
-        }
-
-        long total = mongoTemplate.count(query, Product.class);
-        query.with(pageable);
-        List<Product> content = mongoTemplate.find(query, Product.class);
-
-        return new PageImpl<>(content, pageable, total);
+        return findWithActiveCategoryFilter(baseCriteria, pageable);
     }
 
     public Page<Product> filterByPriceRange(String categoryId, Long minPrice, Long maxPrice, Pageable pageable) {
@@ -149,7 +124,7 @@ public class ProductService {
         // Validate price range
         InputValidationUtil.validatePriceRange(minPrice, maxPrice);
 
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
         if (catId.isEmpty()) {
             return Page.empty(pageable);
         }
@@ -278,7 +253,7 @@ public class ProductService {
             return Page.empty(pageable);
         }
 
-        Optional<ObjectId> catId = parseObjectId(categoryId);
+        Optional<String> catId = parseObjectId(categoryId);
 
         Criteria baseCriteria = MongoQueryBuilder.builder()
                 .withSpecField(Optional.of(specField), Optional.of(sanitizedValue))
@@ -365,24 +340,20 @@ public class ProductService {
                 .orElse(0L);
     }
 
-    private Optional<ObjectId> parseObjectId(String value) {
+    private Optional<String> parseObjectId(String value) {
         return Optional.ofNullable(value)
-                .filter(v -> !v.trim().isEmpty())
-                .flatMap(v -> {
-                    try {
-                        return Optional.of(new ObjectId(v.trim()));
-                    } catch (IllegalArgumentException e) {
-                        return Optional.empty();
-                    }
-                });
+                .map(String::trim)
+                .filter(v -> !v.isEmpty() && ObjectId.isValid(v));
     }
 
-    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId.toString()")
-    private boolean isCategoryActive(ObjectId categoryId) {
+    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId")
+    private boolean isCategoryActive(String categoryId) {
         return Optional.ofNullable(categoryId)
+                .map(String::trim)
+                .filter(ObjectId::isValid)
                 .map(id -> {
                     Query query = new Query(new Criteria().andOperator(
-                            Criteria.where(ProductConstants.FIELD_ID).is(id),
+                            Criteria.where(ProductConstants.FIELD_ID).is(new ObjectId(id)),
                             Criteria.where(ProductConstants.FIELD_IS_ACTIVE).is(true)));
                     return mongoTemplate.exists(query, ProductConstants.COLLECTION_CATEGORIES);
                 })

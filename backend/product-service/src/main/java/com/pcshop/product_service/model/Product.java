@@ -27,11 +27,7 @@ public class Product {
     @Id
     private String id;
 
-    // @Indexed
-    // @Field("categoryId")
-    // @JsonSerialize(using = ObjectIdSerializer.class)
-    // private ObjectId categoryId;
-
+    @Indexed
     @Field(targetType = FieldType.OBJECT_ID)
     private String categoryId;
 

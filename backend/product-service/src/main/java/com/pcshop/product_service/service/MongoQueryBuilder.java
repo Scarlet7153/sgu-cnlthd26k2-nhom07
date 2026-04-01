@@ -31,8 +31,11 @@ public class MongoQueryBuilder {
     /**
      * Adds category ID criteria if provided.
      */
-    public MongoQueryBuilder withCategoryId(Optional<ObjectId> categoryId) {
-        categoryId.ifPresent(id -> criteria.add(Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(id)));
+    public MongoQueryBuilder withCategoryId(Optional<String> categoryId) {
+        categoryId
+                .filter(ObjectId::isValid)
+                .map(ObjectId::new)
+                .ifPresent(id -> criteria.add(Criteria.where(ProductConstants.FIELD_CATEGORY_ID).is(id)));
         return this;
     }
 
