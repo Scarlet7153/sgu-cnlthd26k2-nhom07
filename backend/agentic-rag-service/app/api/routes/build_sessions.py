@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas.build_session import (
     BuildComponentPayload,
@@ -45,7 +45,10 @@ def get_build_session(session_id: str, request: Request) -> BuildSessionResponse
 @router.post("/{session_id}/components", response_model=BuildSessionResponse)
 def add_or_replace_component(session_id: str, payload: BuildComponentPayload, request: Request) -> BuildSessionResponse:
     service = request.app.state.container.pc_build_session_service
-    doc = service.upsert_component(session_id=session_id, payload=payload)
+    try:
+        doc = service.upsert_component(session_id=session_id, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _to_build_session_response(doc)
 
 

@@ -43,6 +43,7 @@ class ServiceContainer:
             database=settings.mongodb_agent_database,
             collection=settings.pc_build_sessions_collection,
             required_slots=settings.required_build_slots.split(","),
+            mongo_search_service=self.mongo_search_service,
         )
 
         self.db_agent = DBRetrievalAgent(

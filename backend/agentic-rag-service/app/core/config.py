@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     web_search_max_results: int = Field(default=5, alias="WEB_SEARCH_MAX_RESULTS")
     required_build_slots: str = Field(
-        default="CPU,MAINBOARD,RAM,GPU,SSD,PSU,CASE,COOLER",
+        default="CPU,MAINBOARD,RAM,SSD,PSU,CASE,COOLER",
         alias="REQUIRED_BUILD_SLOTS",
     )
 

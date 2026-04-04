@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const ADVISOR_SESSION_STORAGE_KEY = "advisor-session-id";
+const ADVISOR_SESSION_STORAGE_KEY = "advisor-session-id-4";
 
 export const advisorApiBase: string = import.meta.env.VITE_ADVISOR_API_BASE_URL || "/advisor-api";
 

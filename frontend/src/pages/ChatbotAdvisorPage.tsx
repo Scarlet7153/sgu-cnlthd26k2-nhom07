@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot, CircleDollarSign, Cpu, Gamepad2, User2 } from "lucide-react";
 import AdvisorNav from "@/components/shared/AdvisorNav";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ type ProductCard = {
   category: string;
   name: string;
   price: number;
+  summary?: string;
   image?: string;
   url?: string;
 };
@@ -47,6 +48,9 @@ type HiddenContext = {
   budget: string | null;
   purpose: string | null;
   brand: string | null;
+  socket: string | null;
+  ramDdr: string | null;
+  ramBus: string | null;
 };
 
 type FilterActionGroup = {
@@ -109,8 +113,22 @@ const budgetOptions = [
 const usageOptions = ["Văn phòng", "Gaming", "Đồ họa 3D", "Stream"];
 
 const brandOptions = ["Intel", "AMD", "NVIDIA", "ASUS", "MSI"];
+const socketOptions = ["LGA 1700", "AM4", "AM5"];
+const ramDdrOptions = ["DDR4", "DDR5"];
+const ramBusOptions = ["3200 MHz", "3600 MHz", "5200 MHz", "5600 MHz", "6000 MHz"];
 
 const FALLBACK_IMAGE = "https://placehold.co/96x96/png?text=No+Image";
+const ADVISOR_CHAT_STATE_STORAGE_PREFIX = "advisor-chat-state";
+const MAX_PERSISTED_CHAT_MESSAGES = 120;
+const DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE = 4;
+const EMPTY_FILTERS: HiddenContext = {
+  budget: null,
+  purpose: null,
+  brand: null,
+  socket: null,
+  ramDdr: null,
+  ramBus: null,
+};
 
 const initialMessages: ChatMessage[] = [
   {
@@ -121,6 +139,93 @@ const initialMessages: ChatMessage[] = [
       "Xin chào, tôi là PC Advisor AI. Bạn có thể chọn nhanh tiêu chí ở cột trái rồi đặt câu hỏi ở khung chat. Tôi sẽ tự động nhận ngữ cảnh bộ lọc hiện tại khi bạn bấm Gửi.",
   },
 ];
+
+type PersistedAdvisorChatState = {
+  currentFilters: HiddenContext;
+  messages: ChatMessage[];
+  input: string;
+};
+
+function getAdvisorChatStateStorageKey(sessionId: string): string {
+  return `${ADVISOR_CHAT_STATE_STORAGE_PREFIX}:${sessionId}`;
+}
+
+function sanitizeFilters(filters: unknown): HiddenContext {
+  if (!filters || typeof filters !== "object") {
+    return { budget: null, purpose: null, brand: null, socket: null, ramDdr: null, ramBus: null };
+  }
+  const value = filters as Partial<HiddenContext>;
+  return {
+    budget: typeof value.budget === "string" ? value.budget : null,
+    purpose: typeof value.purpose === "string" ? value.purpose : null,
+    brand: typeof value.brand === "string" ? value.brand : null,
+    socket: typeof value.socket === "string" ? value.socket : null,
+    ramDdr: typeof value.ramDdr === "string" ? value.ramDdr : null,
+    ramBus: typeof value.ramBus === "string" ? value.ramBus : null,
+  };
+}
+
+function sanitizeMessages(messages: unknown): ChatMessage[] {
+  if (!Array.isArray(messages)) {
+    return initialMessages;
+  }
+  const sanitized = messages.filter((item): item is ChatMessage => {
+    if (!item || typeof item !== "object") return false;
+    const message = item as Partial<ChatMessage>;
+    const isValidRole = message.role === "assistant" || message.role === "user";
+    const isValidType =
+      message.contentType === "text" ||
+      message.contentType === "products" ||
+      message.contentType === "actions";
+    return typeof message.id === "string" && isValidRole && isValidType && typeof message.content === "string";
+  });
+
+  if (sanitized.length === 0) {
+    return initialMessages;
+  }
+
+  return sanitized.slice(-MAX_PERSISTED_CHAT_MESSAGES);
+}
+
+function loadPersistedChatState(sessionId: string): PersistedAdvisorChatState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(getAdvisorChatStateStorageKey(sessionId));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PersistedAdvisorChatState>;
+    return {
+      currentFilters: sanitizeFilters(parsed.currentFilters),
+      messages: sanitizeMessages(parsed.messages),
+      input: typeof parsed.input === "string" ? parsed.input : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistChatState(sessionId: string, state: PersistedAdvisorChatState): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const payload: PersistedAdvisorChatState = {
+    currentFilters: state.currentFilters,
+    messages: state.messages.slice(-MAX_PERSISTED_CHAT_MESSAGES),
+    input: state.input,
+  };
+
+  try {
+    localStorage.setItem(getAdvisorChatStateStorageKey(sessionId), JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota or serialization issues.
+  }
+}
 
 
 function inferSlot(categoryLike: string): string {
@@ -154,9 +259,90 @@ function toProductCard(item: AdvisorProductSuggestion): ProductCard {
     category: slot,
     name: item.name,
     price: item.price || 0,
+    summary: buildProductSummary(item.name, slot),
     image: item.image || undefined,
     url: item.url || undefined,
   };
+}
+
+function extractFirst(text: string, pattern: RegExp): string | null {
+  const match = text.match(pattern);
+  return match ? match[1] || match[0] : null;
+}
+
+function buildProductSummary(name: string, slot: string): string | undefined {
+  const upper = name.toUpperCase();
+
+  if (slot === "CPU") {
+    const socket = extractFirst(upper, /(LGA\s?\d{3,4}|AM\d|S?TR\d+)/);
+    const cores = extractFirst(upper, /(\d+)C\/(\d+)T/);
+    const baseClock = extractFirst(upper, /(\d+(?:[\.,]\d+)?)\s*GHZ/);
+    const parts = [cores, socket, baseClock ? `${baseClock}GHz` : null].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "MAINBOARD") {
+    const chipset = extractFirst(upper, /\b([A-Z]\d{3}[A-Z]?)\b/);
+    const socket = extractFirst(upper, /(LGA\s?\d{3,4}|AM\d)/);
+    const ddr = extractFirst(upper, /(DDR\d)/);
+    const parts = [chipset, socket, ddr].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "RAM") {
+    const capacity = extractFirst(upper, /(\d+\s?GB)/);
+    const ddr = extractFirst(upper, /(DDR\d)/);
+    const mhz = extractFirst(upper, /(\d{4,5})\s?MHZ/);
+    const parts = [capacity, ddr, mhz ? `${mhz}MHz` : null].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "SSD") {
+    const capacity = extractFirst(upper, /(\d+\s?(?:TB|GB))/);
+    const protocol = upper.includes("NVME") ? "NVMe" : upper.includes("SATA") ? "SATA" : null;
+    const form = upper.includes("M.2") ? "M.2" : null;
+    const parts = [capacity, protocol, form].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "GPU") {
+    const model = extractFirst(upper, /((?:RTX|GTX|RX)\s?\d{3,4}(?:\s?TI|\s?SUPER)?)/);
+    const vram = extractFirst(upper, /(\d+\s?GB)/);
+    const parts = [model, vram].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "PSU") {
+    const watt = extractFirst(upper, /(\d{3,4})\s?W/);
+    const rating = extractFirst(upper, /(80\+\s?(?:BRONZE|SILVER|GOLD|PLATINUM|TITANIUM))/);
+    const parts = [watt ? `${watt}W` : null, rating].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "CASE") {
+    const form = extractFirst(upper, /(ATX|M-ATX|MATX|ITX|E-ATX)/);
+    const fan = extractFirst(upper, /(\d+)\s?FAN/);
+    const parts = [form, fan ? `${fan} fan` : null].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  if (slot === "COOLER") {
+    const type = upper.includes("AIO") || upper.includes("LIQUID") ? "Tản nước" : "Tản khí";
+    const size = extractFirst(upper, /(120|240|280|360)\s?MM/);
+    const parts = [type, size ? `${size}mm` : null].filter(Boolean);
+    return parts.length > 0 ? parts.join(" | ") : undefined;
+  }
+
+  const genericParts = name
+    .split(/[(),\-|]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3)
+    .slice(1, 3);
+  if (genericParts.length > 0) {
+    return genericParts.join(" | ");
+  }
+
+  return "Thông số cơ bản";
 }
 
 function toSelectedComponent(item: BuildSessionComponentResponse): SelectedComponent {
@@ -184,6 +370,12 @@ function buildFilterActions(filters: HiddenContext): FilterActionGroup[] {
   if (!filters.brand) {
     actions.push({ field: "brand", label: "Hãng", options: brandOptions });
   }
+  if (!filters.socket) {
+    actions.push({ field: "socket", label: "Socket", options: socketOptions });
+  }
+  if (!filters.ramDdr) {
+    actions.push({ field: "ramDdr", label: "RAM DDR", options: ramDdrOptions });
+  }
   return actions;
 }
 
@@ -191,6 +383,9 @@ const filterFieldLabels: Record<keyof HiddenContext, string> = {
   budget: "Ngân sách",
   purpose: "Nhu cầu",
   brand: "Hãng",
+  socket: "Socket",
+  ramDdr: "RAM DDR",
+  ramBus: "RAM bus",
 };
 
 function normalizeForSearch(text: string): string {
@@ -243,6 +438,31 @@ function inferFiltersFromMessage(message: string, current: HiddenContext): Infer
       patch.brand = "ASUS";
     } else if (/\bmsi\b/.test(normalized)) {
       patch.brand = "MSI";
+    }
+  }
+
+  if (!current.socket) {
+    if (/lga\s*1700|1700/.test(normalized)) {
+      patch.socket = "LGA 1700";
+    } else if (/\bam5\b/.test(normalized)) {
+      patch.socket = "AM5";
+    } else if (/\bam4\b/.test(normalized)) {
+      patch.socket = "AM4";
+    }
+  }
+
+  if (!current.ramDdr) {
+    if (/ddr\s*5|\bddr5\b/.test(normalized)) {
+      patch.ramDdr = "DDR5";
+    } else if (/ddr\s*4|\bddr4\b/.test(normalized)) {
+      patch.ramDdr = "DDR4";
+    }
+  }
+
+  if (!current.ramBus) {
+    const busMatch = normalized.match(/\b(3200|3600|5200|5600|6000)\s*(mhz)?\b/);
+    if (busMatch) {
+      patch.ramBus = `${busMatch[1]} MHz`;
     }
   }
 
@@ -306,6 +526,11 @@ function ProductCardInChat({
         <div className="flex-1">
           <p className="text-xs text-muted-foreground">{product.category}</p>
           <p className="line-clamp-2 text-sm font-medium text-foreground">{product.name}</p>
+          {product.summary && (
+            <p className="mt-1 text-[11px] text-foreground/80">
+              <span className="font-semibold text-foreground/90">Thông số:</span> {product.summary}
+            </p>
+          )}
           {product.url && (
             <a
               href={product.url}
@@ -353,16 +578,24 @@ export default function ChatbotAdvisorPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [sessionId] = useState<string>(() => getAdvisorSessionId());
-  const [currentFilters, setCurrentFilters] = useState<HiddenContext>({
-    budget: null,
-    purpose: null,
-    brand: null,
-  });
+  const persistedState = useMemo(() => loadPersistedChatState(sessionId), [sessionId]);
+  const [currentFilters, setCurrentFilters] = useState<HiddenContext>(
+    () => persistedState?.currentFilters ?? EMPTY_FILTERS
+  );
   const [selectedComponents, setSelectedComponents] = useState<SelectedComponent[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>(() => persistedState?.messages ?? initialMessages);
+  const [input, setInput] = useState(() => persistedState?.input ?? "");
   const [isSending, setIsSending] = useState(false);
   const [isSyncingBuild, setIsSyncingBuild] = useState(false);
+  const [expandedProductMessages, setExpandedProductMessages] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    persistChatState(sessionId, {
+      currentFilters,
+      messages,
+      input,
+    });
+  }, [sessionId, currentFilters, messages, input]);
 
   const addTextMessage = (role: ChatRole, content: string) => {
     setMessages((prev) => [
@@ -404,7 +637,7 @@ export default function ChatbotAdvisorPage() {
   };
 
   const hasAnyFilter = (filters: HiddenContext) =>
-    Boolean(filters.budget || filters.purpose || filters.brand);
+    Boolean(filters.budget || filters.purpose || filters.brand || filters.socket || filters.ramDdr || filters.ramBus);
 
   const promptForFilters = (isReminder: boolean) => {
     const actions = buildFilterActions(currentFilters);
@@ -457,6 +690,9 @@ export default function ChatbotAdvisorPage() {
           budget: filters.budget,
           purpose: filters.purpose,
           brand: filters.brand,
+          socket: filters.socket,
+          ramDdr: filters.ramDdr,
+          ramBus: filters.ramBus,
         },
       });
     } catch (error: unknown) {
@@ -477,9 +713,20 @@ export default function ChatbotAdvisorPage() {
     });
   };
 
+  const clearAllFilters = async () => {
+    setCurrentFilters(EMPTY_FILTERS);
+    await persistContextUpdate(EMPTY_FILTERS);
+    toast({
+      title: "Đã xóa tiêu chí",
+      description: "Bộ lọc đã được đặt lại.",
+    });
+  };
+
   const maybeAutoFillFiltersFromMessage = async (chatMessage: string): Promise<HiddenContext> => {
     const patch = inferFiltersFromMessage(chatMessage, currentFilters);
-    const hasPatch = Boolean(patch.budget || patch.purpose || patch.brand);
+    const hasPatch = Boolean(
+      patch.budget || patch.purpose || patch.brand || patch.socket || patch.ramDdr || patch.ramBus
+    );
     if (!hasPatch) {
       return currentFilters;
     }
@@ -488,11 +735,14 @@ export default function ChatbotAdvisorPage() {
       budget: patch.budget ?? currentFilters.budget,
       purpose: patch.purpose ?? currentFilters.purpose,
       brand: patch.brand ?? currentFilters.brand,
+      socket: patch.socket ?? currentFilters.socket,
+      ramDdr: patch.ramDdr ?? currentFilters.ramDdr,
+      ramBus: patch.ramBus ?? currentFilters.ramBus,
     };
     setCurrentFilters(next);
     await persistContextUpdate(next);
 
-    const filledParts = (["budget", "purpose", "brand"] as const)
+    const filledParts = (["budget", "purpose", "brand", "socket", "ramDdr", "ramBus"] as const)
       .filter((key) => patch[key])
       .map((key) => `${filterFieldLabels[key]}: ${patch[key]}`);
     if (filledParts.length > 0) {
@@ -526,7 +776,18 @@ export default function ChatbotAdvisorPage() {
         description: `${product.name} (${product.category})`,
       });
     } catch (error: unknown) {
-      addTextMessage("assistant", getApiErrorMessage(error, "Không thể thêm linh kiện vào cấu hình."));
+      const message = getApiErrorMessage(error, "Không thể thêm linh kiện vào cấu hình.");
+      const normalized = normalizeForSearch(message);
+      const isCompatibilityIssue =
+        normalized.includes("khong tuong thich") ||
+        normalized.includes("khong phu hop") ||
+        normalized.includes("socket");
+
+      toast({
+        title: isCompatibilityIssue ? "Linh kiện không tương thích" : "Không thể thêm linh kiện",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setIsSyncingBuild(false);
     }
@@ -560,6 +821,9 @@ export default function ChatbotAdvisorPage() {
           budget: effectiveFilters.budget,
           purpose: effectiveFilters.purpose,
           brand: effectiveFilters.brand,
+          socket: effectiveFilters.socket,
+          ramDdr: effectiveFilters.ramDdr,
+          ramBus: effectiveFilters.ramBus,
           selectedComponents: selectedComponents.map((item) => ({
             slot: item.slot,
             productId: item.id,
@@ -615,6 +879,17 @@ export default function ChatbotAdvisorPage() {
         <div className="mt-4 grid gap-4 lg:gap-6 lg:grid-cols-[32%_68%]">
           <aside className="space-y-4">
             <div className="rounded-2xl border border-border bg-card p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground">Tiêu chí tư vấn</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearAllFilters}
+                  disabled={!hasAnyFilter(currentFilters)}
+                >
+                  Xóa tiêu chí
+                </Button>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <FilterGroup
                   title="Ngân sách"
@@ -639,6 +914,27 @@ export default function ChatbotAdvisorPage() {
                   options={brandOptions}
                   value={currentFilters.brand}
                   onSelect={(value) => updateFilter("brand", value)}
+                />
+                <FilterGroup
+                  title="Socket"
+                  icon={<Cpu className="h-4 w-4 text-primary" />}
+                  options={socketOptions}
+                  value={currentFilters.socket}
+                  onSelect={(value) => updateFilter("socket", value)}
+                />
+                <FilterGroup
+                  title="RAM DDR (ưu tiên)"
+                  icon={<Cpu className="h-4 w-4 text-primary" />}
+                  options={ramDdrOptions}
+                  value={currentFilters.ramDdr}
+                  onSelect={(value) => updateFilter("ramDdr", value)}
+                />
+                <FilterGroup
+                  title="RAM bus MHz (nâng cao)"
+                  icon={<Cpu className="h-4 w-4 text-primary" />}
+                  options={ramBusOptions}
+                  value={currentFilters.ramBus}
+                  onSelect={(value) => updateFilter("ramBus", value)}
                 />
               </div>
             </div>
@@ -688,43 +984,40 @@ export default function ChatbotAdvisorPage() {
                       <span>{msg.role === "user" ? "Bạn" : "Advisor"}</span>
                     </div>
                     <p>{msg.content}</p>
-                    {msg.citations && msg.citations.length > 0 && (
-                      <div className="mt-3 rounded-lg border border-border bg-background p-2">
-                        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Nguồn tham chiếu</p>
-                        <div className="space-y-1.5">
-                          {msg.citations.map((citation, index) => (
-                            <div key={`${msg.id}-citation-${index}`} className="rounded-md border border-border/70 p-2 text-xs">
-                              <p className="line-clamp-2 font-medium text-foreground">{citation.title}</p>
-                              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                Nguồn: {citation.source.toUpperCase()} | Score: {(citation.score ?? 0).toFixed(3)}
-                              </p>
-                              {citation.snippet && (
-                                <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{citation.snippet}</p>
-                              )}
-                              {citation.url && (
-                                <a
-                                  href={citation.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mt-1 inline-block text-[11px] text-primary hover:underline"
-                                >
-                                  Xem nguồn
-                                </a>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                     {msg.contentType === "products" && msg.products && msg.products.length > 0 && (
                       <div className="mt-3 space-y-2">
-                        {msg.products.map((product) => (
+                        <p className="rounded-md border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                          Danh sach nay la cac lua chon thay the theo tung nhom linh kien. Ban chi can chon 1 san pham phu hop cho moi nhom.
+                        </p>
+                        {(expandedProductMessages[msg.id]
+                          ? msg.products
+                          : msg.products.slice(0, DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE)
+                        ).map((product) => (
                           <ProductCardInChat
                             key={`chat-product-${msg.id}-${product.id}`}
                             product={product}
                             onAdd={addSelectedPart}
                           />
                         ))}
+                        {msg.products.length > DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE && (
+                          <div className="pt-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setExpandedProductMessages((prev) => ({
+                                  ...prev,
+                                  [msg.id]: !prev[msg.id],
+                                }))
+                              }
+                            >
+                              {expandedProductMessages[msg.id]
+                                ? "Thu gọn"
+                                : `Xem thêm ${msg.products.length - DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE} sản phẩm`}
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                     {msg.contentType === "actions" && msg.actions && msg.actions.length > 0 && (
