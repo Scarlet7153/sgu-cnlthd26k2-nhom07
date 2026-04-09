@@ -21,6 +21,7 @@ type ProductCard = {
   summary?: string;
   image?: string;
   url?: string;
+  suggestionType?: "primary" | "alternative";
 };
 
 type ChatMessage = {
@@ -48,9 +49,6 @@ type HiddenContext = {
   budget: string | null;
   purpose: string | null;
   brand: string | null;
-  socket: string | null;
-  ramDdr: string | null;
-  ramBus: string | null;
 };
 
 type FilterActionGroup = {
@@ -74,6 +72,10 @@ type AdvisorProductSuggestion = {
 type AdvisorChatResponse = {
   answer: string;
   products: AdvisorProductSuggestion[];
+  primaryBuild?: AdvisorProductSuggestion[];
+  alternativesBySlot?: Record<string, AdvisorProductSuggestion[]>;
+  estimatedBuildTotal?: number | null;
+  budgetStatus?: "within_budget" | "near_budget" | "over_budget" | "under_budget" | null;
   citations?: AdvisorCitation[];
 };
 
@@ -113,9 +115,6 @@ const budgetOptions = [
 const usageOptions = ["Văn phòng", "Gaming", "Đồ họa 3D", "Stream"];
 
 const brandOptions = ["Intel", "AMD", "NVIDIA", "ASUS", "MSI"];
-const socketOptions = ["LGA 1700", "AM4", "AM5"];
-const ramDdrOptions = ["DDR4", "DDR5"];
-const ramBusOptions = ["3200 MHz", "3600 MHz", "5200 MHz", "5600 MHz", "6000 MHz"];
 
 const FALLBACK_IMAGE = "https://placehold.co/96x96/png?text=No+Image";
 const ADVISOR_CHAT_STATE_STORAGE_PREFIX = "advisor-chat-state";
@@ -125,9 +124,6 @@ const EMPTY_FILTERS: HiddenContext = {
   budget: null,
   purpose: null,
   brand: null,
-  socket: null,
-  ramDdr: null,
-  ramBus: null,
 };
 
 const initialMessages: ChatMessage[] = [
@@ -152,16 +148,13 @@ function getAdvisorChatStateStorageKey(sessionId: string): string {
 
 function sanitizeFilters(filters: unknown): HiddenContext {
   if (!filters || typeof filters !== "object") {
-    return { budget: null, purpose: null, brand: null, socket: null, ramDdr: null, ramBus: null };
+    return { budget: null, purpose: null, brand: null };
   }
   const value = filters as Partial<HiddenContext>;
   return {
     budget: typeof value.budget === "string" ? value.budget : null,
     purpose: typeof value.purpose === "string" ? value.purpose : null,
     brand: typeof value.brand === "string" ? value.brand : null,
-    socket: typeof value.socket === "string" ? value.socket : null,
-    ramDdr: typeof value.ramDdr === "string" ? value.ramDdr : null,
-    ramBus: typeof value.ramBus === "string" ? value.ramBus : null,
   };
 }
 
@@ -250,7 +243,7 @@ function inferSlot(categoryLike: string): string {
 }
 
 
-function toProductCard(item: AdvisorProductSuggestion): ProductCard {
+function toProductCard(item: AdvisorProductSuggestion, suggestionType?: "primary" | "alternative"): ProductCard {
   const slot = inferSlot(item.slot || item.categoryId || "OTHER");
   return {
     id: item.productId,
@@ -262,7 +255,62 @@ function toProductCard(item: AdvisorProductSuggestion): ProductCard {
     summary: buildProductSummary(item.name, slot),
     image: item.image || undefined,
     url: item.url || undefined,
+    suggestionType,
   };
+}
+
+function buildStructuredProductCards(response: AdvisorChatResponse): ProductCard[] {
+  const cards: ProductCard[] = [];
+  const seen = new Set<string>();
+
+  const primary = Array.isArray(response.primaryBuild) ? response.primaryBuild : [];
+  for (const item of primary) {
+    const card = toProductCard(item, "primary");
+    if (seen.has(card.id)) continue;
+    seen.add(card.id);
+    cards.push(card);
+  }
+
+  const alternativesBySlot = response.alternativesBySlot || {};
+  const orderedSlots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "GPU", "CASE", "COOLER"];
+  const slots = [
+    ...orderedSlots.filter((slot) => alternativesBySlot[slot]),
+    ...Object.keys(alternativesBySlot).filter((slot) => !orderedSlots.includes(slot)),
+  ];
+  for (const slot of slots) {
+    const items = alternativesBySlot[slot] || [];
+    for (const item of items) {
+      const card = toProductCard(item, "alternative");
+      if (seen.has(card.id)) continue;
+      seen.add(card.id);
+      cards.push(card);
+    }
+  }
+
+  if (cards.length === 0) {
+    return (response.products || []).map((item) => toProductCard(item));
+  }
+
+  return cards;
+}
+
+function toBudgetStatusLabel(status?: AdvisorChatResponse["budgetStatus"]): string {
+  if (status === "within_budget") return "Trong ngân sách";
+  if (status === "near_budget") return "Gần chạm trần ngân sách";
+  if (status === "over_budget") return "Vượt ngân sách";
+  if (status === "under_budget") return "Thấp hơn mức ngân sách mong muốn";
+  return "";
+}
+
+function buildRecommendationSummary(response: AdvisorChatResponse): string {
+  if (!response.estimatedBuildTotal || response.estimatedBuildTotal <= 0) {
+    return "";
+  }
+
+  const statusLabel = toBudgetStatusLabel(response.budgetStatus);
+  const mainCount = Array.isArray(response.primaryBuild) ? response.primaryBuild.length : 0;
+  const statusPart = statusLabel ? ` | ${statusLabel}` : "";
+  return `Bộ chính tạm tính: ${formatPrice(response.estimatedBuildTotal)} (${mainCount} linh kiện chính${statusPart}).`;
 }
 
 function extractFirst(text: string, pattern: RegExp): string | null {
@@ -370,12 +418,6 @@ function buildFilterActions(filters: HiddenContext): FilterActionGroup[] {
   if (!filters.brand) {
     actions.push({ field: "brand", label: "Hãng", options: brandOptions });
   }
-  if (!filters.socket) {
-    actions.push({ field: "socket", label: "Socket", options: socketOptions });
-  }
-  if (!filters.ramDdr) {
-    actions.push({ field: "ramDdr", label: "RAM DDR", options: ramDdrOptions });
-  }
   return actions;
 }
 
@@ -383,9 +425,6 @@ const filterFieldLabels: Record<keyof HiddenContext, string> = {
   budget: "Ngân sách",
   purpose: "Nhu cầu",
   brand: "Hãng",
-  socket: "Socket",
-  ramDdr: "RAM DDR",
-  ramBus: "RAM bus",
 };
 
 function normalizeForSearch(text: string): string {
@@ -438,31 +477,6 @@ function inferFiltersFromMessage(message: string, current: HiddenContext): Infer
       patch.brand = "ASUS";
     } else if (/\bmsi\b/.test(normalized)) {
       patch.brand = "MSI";
-    }
-  }
-
-  if (!current.socket) {
-    if (/lga\s*1700|1700/.test(normalized)) {
-      patch.socket = "LGA 1700";
-    } else if (/\bam5\b/.test(normalized)) {
-      patch.socket = "AM5";
-    } else if (/\bam4\b/.test(normalized)) {
-      patch.socket = "AM4";
-    }
-  }
-
-  if (!current.ramDdr) {
-    if (/ddr\s*5|\bddr5\b/.test(normalized)) {
-      patch.ramDdr = "DDR5";
-    } else if (/ddr\s*4|\bddr4\b/.test(normalized)) {
-      patch.ramDdr = "DDR4";
-    }
-  }
-
-  if (!current.ramBus) {
-    const busMatch = normalized.match(/\b(3200|3600|5200|5600|6000)\s*(mhz)?\b/);
-    if (busMatch) {
-      patch.ramBus = `${busMatch[1]} MHz`;
     }
   }
 
@@ -524,7 +538,15 @@ function ProductCardInChat({
           loading="lazy"
         />
         <div className="flex-1">
-          <p className="text-xs text-muted-foreground">{product.category}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">{product.category}</p>
+            {product.suggestionType === "primary" && (
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">Bộ chính</span>
+            )}
+            {product.suggestionType === "alternative" && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Thay thế</span>
+            )}
+          </div>
           <p className="line-clamp-2 text-sm font-medium text-foreground">{product.name}</p>
           {product.summary && (
             <p className="mt-1 text-[11px] text-foreground/80">
@@ -636,8 +658,7 @@ export default function ChatbotAdvisorPage() {
     ]);
   };
 
-  const hasAnyFilter = (filters: HiddenContext) =>
-    Boolean(filters.budget || filters.purpose || filters.brand || filters.socket || filters.ramDdr || filters.ramBus);
+  const hasAnyFilter = (filters: HiddenContext) => Boolean(filters.budget || filters.purpose || filters.brand);
 
   const promptForFilters = (isReminder: boolean) => {
     const actions = buildFilterActions(currentFilters);
@@ -690,9 +711,6 @@ export default function ChatbotAdvisorPage() {
           budget: filters.budget,
           purpose: filters.purpose,
           brand: filters.brand,
-          socket: filters.socket,
-          ramDdr: filters.ramDdr,
-          ramBus: filters.ramBus,
         },
       });
     } catch (error: unknown) {
@@ -724,9 +742,7 @@ export default function ChatbotAdvisorPage() {
 
   const maybeAutoFillFiltersFromMessage = async (chatMessage: string): Promise<HiddenContext> => {
     const patch = inferFiltersFromMessage(chatMessage, currentFilters);
-    const hasPatch = Boolean(
-      patch.budget || patch.purpose || patch.brand || patch.socket || patch.ramDdr || patch.ramBus
-    );
+    const hasPatch = Boolean(patch.budget || patch.purpose || patch.brand);
     if (!hasPatch) {
       return currentFilters;
     }
@@ -735,14 +751,11 @@ export default function ChatbotAdvisorPage() {
       budget: patch.budget ?? currentFilters.budget,
       purpose: patch.purpose ?? currentFilters.purpose,
       brand: patch.brand ?? currentFilters.brand,
-      socket: patch.socket ?? currentFilters.socket,
-      ramDdr: patch.ramDdr ?? currentFilters.ramDdr,
-      ramBus: patch.ramBus ?? currentFilters.ramBus,
     };
     setCurrentFilters(next);
     await persistContextUpdate(next);
 
-    const filledParts = (["budget", "purpose", "brand", "socket", "ramDdr", "ramBus"] as const)
+    const filledParts = (["budget", "purpose", "brand"] as const)
       .filter((key) => patch[key])
       .map((key) => `${filterFieldLabels[key]}: ${patch[key]}`);
     if (filledParts.length > 0) {
@@ -821,9 +834,6 @@ export default function ChatbotAdvisorPage() {
           budget: effectiveFilters.budget,
           purpose: effectiveFilters.purpose,
           brand: effectiveFilters.brand,
-          socket: effectiveFilters.socket,
-          ramDdr: effectiveFilters.ramDdr,
-          ramBus: effectiveFilters.ramBus,
           selectedComponents: selectedComponents.map((item) => ({
             slot: item.slot,
             productId: item.id,
@@ -833,13 +843,17 @@ export default function ChatbotAdvisorPage() {
           })),
         },
         options: {
-          enableWebFallback: true,
+          enableWebFallback: false,
         },
       });
 
       const response = unwrapApiData<AdvisorChatResponse>(raw);
-      const assistantText = response.answer?.trim() || "Tạm thời chưa có gợi ý phù hợp, bạn thử thêm yêu cầu cụ thể hơn.";
-      const products = (response.products || []).map(toProductCard);
+      const assistantTextBase = response.answer?.trim() || "Tạm thời chưa có gợi ý phù hợp, bạn thử thêm yêu cầu cụ thể hơn.";
+      const recommendationSummary = buildRecommendationSummary(response);
+      const assistantText = recommendationSummary
+        ? `${assistantTextBase}\n\n${recommendationSummary}`
+        : assistantTextBase;
+      const products = buildStructuredProductCards(response);
       const citations = (response.citations || []).map((item) => ({
         source: item.source,
         title: item.title,
@@ -915,27 +929,6 @@ export default function ChatbotAdvisorPage() {
                   value={currentFilters.brand}
                   onSelect={(value) => updateFilter("brand", value)}
                 />
-                <FilterGroup
-                  title="Socket"
-                  icon={<Cpu className="h-4 w-4 text-primary" />}
-                  options={socketOptions}
-                  value={currentFilters.socket}
-                  onSelect={(value) => updateFilter("socket", value)}
-                />
-                <FilterGroup
-                  title="RAM DDR (ưu tiên)"
-                  icon={<Cpu className="h-4 w-4 text-primary" />}
-                  options={ramDdrOptions}
-                  value={currentFilters.ramDdr}
-                  onSelect={(value) => updateFilter("ramDdr", value)}
-                />
-                <FilterGroup
-                  title="RAM bus MHz (nâng cao)"
-                  icon={<Cpu className="h-4 w-4 text-primary" />}
-                  options={ramBusOptions}
-                  value={currentFilters.ramBus}
-                  onSelect={(value) => updateFilter("ramBus", value)}
-                />
               </div>
             </div>
 
@@ -983,7 +976,7 @@ export default function ChatbotAdvisorPage() {
                       {msg.role === "user" ? <User2 className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
                       <span>{msg.role === "user" ? "Bạn" : "Advisor"}</span>
                     </div>
-                    <p>{msg.content}</p>
+                    <p className="whitespace-pre-line break-words">{msg.content}</p>
                     {msg.contentType === "products" && msg.products && msg.products.length > 0 && (
                       <div className="mt-3 space-y-2">
                         <p className="rounded-md border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
