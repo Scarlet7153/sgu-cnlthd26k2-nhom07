@@ -238,7 +238,7 @@ class MongoSearchService:
         client = MongoClient(self.mongodb_uri)
         coll = client[self.database][self.collection]
 
-        result: List[Dict[str, Any]] = []
+        slot_buckets: List[List[Dict[str, Any]]] = []
         seen = set()
         for slot in slot_order:
             slot_upper = slot.upper()
@@ -270,16 +270,110 @@ class MongoSearchService:
                 .limit(per_slot_limit)
             )
 
-            for doc in docs:
+            # Also sample higher-priced options within the same slot to avoid always falling into cheapest-only bundles.
+            high_query: Dict[str, Any] = dict(query)
+            high_ratio = 0.55
+            if slot_upper == "CPU":
+                high_ratio = 0.70
+            elif slot_upper == "MAINBOARD":
+                high_ratio = 0.55
+            elif slot_upper in {"RAM", "SSD", "PSU", "CASE", "COOLER"}:
+                high_ratio = 0.30
+            high_price_ceiling = max(1.0, max_item_price * high_ratio)
+            if isinstance(high_query.get("price"), dict):
+                updated_price = dict(high_query.get("price", {}))
+                current_lte = updated_price.get("$lte")
+                if isinstance(current_lte, (int, float)):
+                    updated_price["$lte"] = min(float(current_lte), high_price_ceiling)
+                else:
+                    updated_price["$lte"] = high_price_ceiling
+                high_query["price"] = updated_price
+            if isinstance(query, dict) and isinstance(query.get("$and"), list):
+                patched_and: List[Dict[str, Any]] = []
+                for clause in query.get("$and", []):
+                    if not isinstance(clause, dict) or "price" not in clause:
+                        patched_and.append(clause)
+                        continue
+
+                    price_clause = clause.get("price")
+                    if not isinstance(price_clause, dict):
+                        patched_and.append(clause)
+                        continue
+
+                    updated_price = dict(price_clause)
+                    current_lte = updated_price.get("$lte")
+                    if isinstance(current_lte, (int, float)):
+                        updated_price["$lte"] = min(float(current_lte), high_price_ceiling)
+                    else:
+                        updated_price["$lte"] = high_price_ceiling
+
+                    patched = dict(clause)
+                    patched["price"] = updated_price
+                    patched_and.append(patched)
+
+                high_query["$and"] = patched_and
+
+            upper_docs = list(
+                coll.find(
+                    high_query,
+                    {
+                        "_id": 1,
+                        "name": 1,
+                        "url": 1,
+                        "image": 1,
+                        "price": 1,
+                        "categoryId": 1,
+                        "categoryCode": 1,
+                    },
+                )
+                .sort("price", -1)
+                .limit(per_slot_limit)
+            )
+
+            slot_result: List[Dict[str, Any]] = []
+            for doc in self._interleave_doc_lists(docs, upper_docs):
                 doc_id = str(doc.get("_id", ""))
                 if not doc_id or doc_id in seen:
                     continue
                 seen.add(doc_id)
-                result.append(doc)
-                if len(result) >= total_limit:
-                    return result
+                slot_result.append(doc)
 
-        return result
+            if slot_result:
+                slot_buckets.append(slot_result)
+
+        return self._merge_slot_docs_round_robin(slot_buckets, total_limit)
+
+    @staticmethod
+    def _merge_slot_docs_round_robin(slot_buckets: List[List[Dict[str, Any]]], total_limit: int) -> List[Dict[str, Any]]:
+        if total_limit <= 0 or not slot_buckets:
+            return []
+
+        merged: List[Dict[str, Any]] = []
+        index = 0
+        progressed = True
+        while len(merged) < total_limit and progressed:
+            progressed = False
+            for bucket in slot_buckets:
+                if index >= len(bucket):
+                    continue
+                merged.append(bucket[index])
+                progressed = True
+                if len(merged) >= total_limit:
+                    break
+            index += 1
+
+        return merged
+
+    @staticmethod
+    def _interleave_doc_lists(low_docs: List[Dict[str, Any]], high_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        interleaved: List[Dict[str, Any]] = []
+        max_len = max(len(low_docs), len(high_docs))
+        for idx in range(max_len):
+            if idx < len(low_docs):
+                interleaved.append(low_docs[idx])
+            if idx < len(high_docs):
+                interleaved.append(high_docs[idx])
+        return interleaved
 
     def get_alternative_products_for_slot(
         self,
@@ -289,6 +383,8 @@ class MongoSearchService:
         limit: int = 4,
         exclude_product_ids: Optional[List[str]] = None,
         selected_brand: Optional[str] = None,
+        preferred_socket: Optional[str] = None,
+        preferred_platform: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         if not self.mongodb_uri or not slot or budget_max <= 0:
             return []
@@ -320,7 +416,48 @@ class MongoSearchService:
             query["price"] = {"$gte": lower, "$lte": upper}
 
         brand_clause = self._build_brand_clause_for_slot(slot_upper, selected_brand)
-        scoped_query = {"$and": [query, brand_clause]} if brand_clause else query
+        and_clauses: List[Dict[str, Any]] = [query]
+        if brand_clause:
+            and_clauses.append(brand_clause)
+
+        socket_text = str(preferred_socket or "").strip().upper()
+        if socket_text:
+            socket_regex = re.compile(re.escape(socket_text), re.IGNORECASE)
+            and_clauses.append(
+                {
+                    "$or": [
+                        {"socket": socket_regex},
+                        {"specs_raw.Socket": socket_regex},
+                        {"specs_raw.socket": socket_regex},
+                        {"specs_raw.SOCKET": socket_regex},
+                        {"name": socket_regex},
+                    ]
+                }
+            )
+
+        platform_text = str(preferred_platform or "").strip().upper()
+        if platform_text in {"AMD", "INTEL"}:
+            platform_regex = re.compile(platform_text, re.IGNORECASE)
+            chipset_regex = None
+            if platform_text == "AMD":
+                chipset_regex = re.compile(r"\b(A320|A520|B350|B450|B550|B650|X370|X470|X570|X670|AM4|AM5)\b", re.IGNORECASE)
+            if platform_text == "INTEL":
+                chipset_regex = re.compile(r"\b(H610|B660|B760|Z690|Z790|LGA ?1200|LGA ?1700|INTEL)\b", re.IGNORECASE)
+
+            platform_or = [
+                {"brand": platform_regex},
+                {"model": platform_regex},
+                {"name": platform_regex},
+                {"specs_raw.Brand": platform_regex},
+                {"specs_raw.brand": platform_regex},
+                {"specs_raw.Thương hiệu": platform_regex},
+                {"specs_raw.Thuong hieu": platform_regex},
+            ]
+            if chipset_regex is not None:
+                platform_or.append({"name": chipset_regex})
+            and_clauses.append({"$or": platform_or})
+
+        scoped_query = and_clauses[0] if len(and_clauses) == 1 else {"$and": and_clauses}
 
         client = MongoClient(self.mongodb_uri)
         coll = client[self.database][self.collection]
@@ -349,8 +486,42 @@ class MongoSearchService:
             }
             if excluded:
                 broad_query["_id"] = {"$nin": excluded}
+            broad_clauses: List[Dict[str, Any]] = [broad_query]
             if brand_clause:
-                broad_query = {"$and": [broad_query, brand_clause]}
+                broad_clauses.append(brand_clause)
+            if socket_text:
+                socket_regex = re.compile(re.escape(socket_text), re.IGNORECASE)
+                broad_clauses.append(
+                    {
+                        "$or": [
+                            {"socket": socket_regex},
+                            {"specs_raw.Socket": socket_regex},
+                            {"specs_raw.socket": socket_regex},
+                            {"specs_raw.SOCKET": socket_regex},
+                            {"name": socket_regex},
+                        ]
+                    }
+                )
+            if platform_text in {"AMD", "INTEL"}:
+                platform_regex = re.compile(platform_text, re.IGNORECASE)
+                chipset_regex = None
+                if platform_text == "AMD":
+                    chipset_regex = re.compile(r"\b(A320|A520|B350|B450|B550|B650|X370|X470|X570|X670|AM4|AM5)\b", re.IGNORECASE)
+                if platform_text == "INTEL":
+                    chipset_regex = re.compile(r"\b(H610|B660|B760|Z690|Z790|LGA ?1200|LGA ?1700|INTEL)\b", re.IGNORECASE)
+                platform_or = [
+                    {"brand": platform_regex},
+                    {"model": platform_regex},
+                    {"name": platform_regex},
+                    {"specs_raw.Brand": platform_regex},
+                    {"specs_raw.brand": platform_regex},
+                    {"specs_raw.Thương hiệu": platform_regex},
+                    {"specs_raw.Thuong hieu": platform_regex},
+                ]
+                if chipset_regex is not None:
+                    platform_or.append({"name": chipset_regex})
+                broad_clauses.append({"$or": platform_or})
+            broad_query = broad_clauses[0] if len(broad_clauses) == 1 else {"$and": broad_clauses}
             docs = list(
                 coll.find(
                     broad_query,
@@ -497,15 +668,15 @@ class MongoSearchService:
     def _brand_regex_for(brand: str, slot: str) -> Dict[str, str]:
         slot_upper = slot.upper()
         if brand == "NVIDIA":
-            pattern = r"(NVIDIA|GEFORCE|\\bRTX\\b|\\bGTX\\b|QUADRO)"
+            pattern = r"(NVIDIA|GEFORCE|\bRTX\b|\bGTX\b|QUADRO)"
         elif brand == "AMD" and slot_upper == "MAINBOARD":
-            pattern = r"(\\bAMD\\b|\\bAM4\\b|\\bAM5\\b|B450|B550|B650|X570|X670)"
+            pattern = r"(\bAMD\b|\bAM4\b|\bAM5\b|B450|B550|B650|X570|X670)"
         elif brand == "AMD":
-            pattern = r"(\\bAMD\\b|RYZEN|ATHLON|RADEON)"
+            pattern = r"(\bAMD\b|RYZEN|ATHLON|RADEON)"
         elif brand == "INTEL" and slot_upper == "MAINBOARD":
-            pattern = r"(\\bINTEL\\b|\\bLGA\\s?1700\\b|\\bLGA\\s?1200\\b|\\bLGA\\s?1151\\b|B660|B760|Z690|Z790|H610)"
+            pattern = r"(\bINTEL\b|\bLGA\s?1700\b|\bLGA\s?1200\b|\bLGA\s?1151\b|B660|B760|Z690|Z790|H610)"
         else:
-            pattern = r"(\\bINTEL\\b|CORE\\s*I[3579]|PENTIUM|CELERON)"
+            pattern = r"(\bINTEL\b|CORE\s*I[3579]|PENTIUM|CELERON)"
         return {"$regex": pattern, "$options": "i"}
 
     @classmethod
@@ -566,7 +737,12 @@ class MongoSearchService:
         if not slot_scope_filters:
             return None
 
-        return {"$or": slot_scope_filters}
+        return {
+            "$or": [
+                {"categoryId": {"$nin": category_ids}},
+                *slot_scope_filters,
+            ]
+        }
 
     @classmethod
     def _category_ids_for_slots(cls, slots: Optional[List[str]]) -> List[ObjectId]:

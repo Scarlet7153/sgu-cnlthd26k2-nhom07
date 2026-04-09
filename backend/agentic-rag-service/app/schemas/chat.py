@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 class ChatOptions(BaseModel):
     max_iterations: Optional[int] = Field(default=None, alias="maxIterations")
-    enable_web_fallback: bool = Field(default=True, alias="enableWebFallback")
+    enable_web_fallback: bool = Field(default=False, alias="enableWebFallback")
 
 
 class ChatRequest(BaseModel):
@@ -56,6 +56,13 @@ class ChatResponse(BaseModel):
     answer: str
     confidence: float = 0.0
     products: List[ProductSuggestion] = Field(default_factory=list)
+    primary_build: List[ProductSuggestion] = Field(default_factory=list, alias="primaryBuild")
+    alternatives_by_slot: Dict[str, List[ProductSuggestion]] = Field(default_factory=dict, alias="alternativesBySlot")
+    estimated_build_total: Optional[int] = Field(default=None, alias="estimatedBuildTotal")
+    budget_status: Optional[Literal["within_budget", "near_budget", "over_budget", "under_budget"]] = Field(
+        default=None,
+        alias="budgetStatus",
+    )
     citations: List[Citation] = Field(default_factory=list)
     trace: ChatTrace
 
