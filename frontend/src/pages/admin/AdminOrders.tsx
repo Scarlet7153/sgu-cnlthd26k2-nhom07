@@ -158,10 +158,15 @@ export default function AdminOrders() {
   const handleConfirm = async (order: AdminOrder) => {
     const config = statusConfig[order.status];
     if (!config?.next) return;
+    const noteMap: Record<string, string> = {
+      confirmed: "Đã xác nhận đơn hàng",
+      shipping: "Đang giao hàng",
+      delivered: "Đã giao hàng thành công",
+    };
     try {
       await updateStatus.mutateAsync({
         id: order.id,
-        data: { status: config.next },
+        data: { status: config.next, note: noteMap[config.next] || `Chuyển sang ${config.nextLabel}` },
       });
       toast({ title: "Thành công", description: `Đã chuyển sang "${config.nextLabel}"` });
       refetch();
@@ -361,69 +366,148 @@ export default function AdminOrders() {
                                       <Eye className="h-3.5 w-3.5" />
                                     </Button>
                                   </DialogTrigger>
-                                  <DialogContent className="max-w-7xl w-[96vw] max-h-[90vh] overflow-y-auto">
+                                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                                     <DialogHeader>
                                       <DialogTitle>
                                         Chi tiết đơn hàng
                                       </DialogTitle>
                                     </DialogHeader>
                                     {selectedOrder && (
-                                      <div className="space-y-4">
-                                        <div className="rounded-lg bg-gray-50 p-4">
-                                          <h4 className="mb-2 font-medium">
-                                            Thông tin giao hàng
-                                          </h4>
-                                          <p className="text-sm">
-                                            Tên: {selectedOrder.shippingAddress?.fullName || "-"}
-                                          </p>
-                                          <p className="text-sm">
-                                            SĐT: {selectedOrder.shippingAddress?.phone || "-"}
-                                          </p>
-                                          <p className="text-sm">
-                                            Địa chỉ: {selectedOrder.shippingAddress?.address || "-"}
-                                            {selectedOrder.shippingAddress?.ward
-                                              ? `, ${selectedOrder.shippingAddress.ward}`
-                                              : ""}
-                                            {selectedOrder.shippingAddress?.district
-                                              ? `, ${selectedOrder.shippingAddress.district}`
-                                              : ""}
-                                            {selectedOrder.shippingAddress?.province
-                                              ? `, ${selectedOrder.shippingAddress.province}`
-                                              : ""}
-                                          </p>
-                                        </div>
-                                        <div>
-                                          <h4 className="mb-2 font-medium">
-                                            Sản phẩm
-                                          </h4>
-                                          {selectedOrder.items?.map((item, idx) => (
-                                            <div
-                                              key={idx}
-                                              className="flex items-center justify-between border-b py-2 last:border-0"
-                                            >
+                                      <div className="space-y-6">
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                          <div className="rounded-lg bg-gray-50 p-4">
+                                            <h4 className="mb-3 font-semibold text-gray-700">
+                                              Thông tin giao hàng
+                                            </h4>
+                                            <div className="space-y-2 text-sm">
                                               <div>
-                                                <p className="text-sm font-medium">
-                                                  {item.productName}
-                                                </p>
-                                                <p className="text-xs text-gray-500">
-                                                  SL: {item.quantity} x{" "}
-                                                  {formatPrice(item.productPrice)}
+                                                <span className="text-gray-500">Tên:</span>{" "}
+                                                {selectedOrder.shippingAddress?.fullName || "-"}
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">SĐT:</span>{" "}
+                                                {selectedOrder.shippingAddress?.phone || "-"}
+                                              </div>
+                                              {selectedOrder.shippingAddress?.email && (
+                                                <div>
+                                                  <span className="text-gray-500">Email:</span>{" "}
+                                                  {selectedOrder.shippingAddress.email}
+                                                </div>
+                                              )}
+                                              <div>
+                                                <span className="text-gray-500">Địa chỉ:</span>{" "}
+                                                {selectedOrder.shippingAddress?.address || "-"}
+                                                {selectedOrder.shippingAddress?.ward
+                                                  ? `, ${selectedOrder.shippingAddress.ward}`
+                                                  : ""}
+                                                {selectedOrder.shippingAddress?.district
+                                                  ? `, ${selectedOrder.shippingAddress.district}`
+                                                  : ""}
+                                                {selectedOrder.shippingAddress?.province
+                                                  ? `, ${selectedOrder.shippingAddress.province}`
+                                                  : ""}
+                                              </div>
+                                              {selectedOrder.note && (
+                                                <div>
+                                                  <span className="text-gray-500">Ghi chú:</span>{" "}
+                                                  {selectedOrder.note}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="rounded-lg bg-gray-50 p-4">
+                                            <h4 className="mb-3 font-semibold text-gray-700">
+                                              Thông tin đơn hàng
+                                            </h4>
+                                            <div className="space-y-2 text-sm">
+                                              <div>
+                                                <span className="text-gray-500">Mã đơn:</span>{" "}
+                                                <code className="rounded bg-gray-200 px-1.5 py-0.5 text-xs">
+                                                  {selectedOrder.id}
+                                                </code>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Ngày đặt:</span>{" "}
+                                                {formatDate(selectedOrder.createdAt)}
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Thanh toán:</span>{" "}
+                                                <Badge variant="outline">
+                                                  {getPaymentLabel(selectedOrder.paymentMethod)}
+                                                </Badge>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Trạng thái TT:</span>{" "}
+                                                <Badge
+                                                  variant={
+                                                    selectedOrder.paymentStatus === "paid"
+                                                      ? "default"
+                                                      : selectedOrder.paymentStatus === "refunded"
+                                                      ? "secondary"
+                                                      : "outline"
+                                                  }
+                                                >
+                                                  {selectedOrder.paymentStatus === "paid"
+                                                    ? "Đã thanh toán"
+                                                    : selectedOrder.paymentStatus === "refunded"
+                                                    ? "Đã hoàn tiền"
+                                                    : "Chưa thanh toán"}
+                                                </Badge>
+                                              </div>
+                                              {selectedOrder.cancelReason && (
+                                                <div>
+                                                  <span className="text-gray-500">Lý do hủy:</span>{" "}
+                                                  {selectedOrder.cancelReason}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <h4 className="mb-3 font-semibold text-gray-700">
+                                            Sản phẩm ({selectedOrder.items?.length || 0})
+                                          </h4>
+                                          <div className="space-y-3">
+                                            {selectedOrder.items?.map((item, idx) => (
+                                              <div
+                                                key={idx}
+                                                className="flex items-center gap-4 rounded-lg border p-3"
+                                              >
+                                                <img
+                                                  src={item.productImage || "https://placehold.co/80x80?text=No+Image"}
+                                                  alt={item.productName}
+                                                  className="h-16 w-16 rounded-lg object-cover border"
+                                                  onError={(e) => {
+                                                    (e.target as HTMLImageElement).src =
+                                                      "https://placehold.co/80x80?text=No+Image";
+                                                  }}
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-sm font-medium truncate">
+                                                    {item.productName}
+                                                  </p>
+                                                  <p className="text-xs text-gray-500">
+                                                    SL: {item.quantity} x{" "}
+                                                    {formatPrice(item.productPrice)}
+                                                  </p>
+                                                </div>
+                                                <p className="font-semibold text-blue-600 shrink-0">
+                                                  {formatPrice(
+                                                    item.totalPrice ||
+                                                      item.quantity * item.productPrice
+                                                  )}
                                                 </p>
                                               </div>
-                                              <p className="font-medium">
-                                                {formatPrice(
-                                                  item.totalPrice ||
-                                                    item.quantity * item.productPrice
-                                                )}
-                                              </p>
-                                            </div>
-                                          ))}
+                                            ))}
+                                          </div>
                                         </div>
-                                        <div className="flex items-center justify-between border-t pt-4">
-                                          <span className="font-medium">
+
+                                        <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4">
+                                          <span className="font-semibold text-gray-700">
                                             Tổng cộng:
                                           </span>
-                                          <span className="text-lg font-bold text-blue-600">
+                                          <span className="text-xl font-bold text-blue-600">
                                             {formatPrice(
                                               selectedOrder.total ||
                                                 selectedOrder.totalPrice ||
@@ -431,6 +515,52 @@ export default function AdminOrders() {
                                             )}
                                           </span>
                                         </div>
+
+                                        {selectedOrder.historyStatus && selectedOrder.historyStatus.length > 0 && (
+                                          <div>
+                                            <h4 className="mb-3 font-semibold text-gray-700">
+                                              Lịch sử trạng thái
+                                            </h4>
+                                            <div className="space-y-0">
+                                              {selectedOrder.historyStatus.map((h: any, idx: number) => {
+                                                const isPaymentStatus = h.status?.startsWith("payment_");
+                                                const actualStatus = isPaymentStatus ? h.status.replace("payment_", "") : h.status;
+                                                const paymentStatusConfig: Record<string, { label: string; color: string; bg: string }> = {
+                                                  paid: { label: "Đã thanh toán", color: "text-blue-700", bg: "bg-blue-100" },
+                                                  unpaid: { label: "Chưa thanh toán", color: "text-gray-700", bg: "bg-gray-100" },
+                                                  refunded: { label: "Đã hoàn tiền", color: "text-orange-700", bg: "bg-orange-100" },
+                                                };
+                                                const config = isPaymentStatus
+                                                  ? (paymentStatusConfig[actualStatus] || { label: h.status, color: "text-gray-700", bg: "bg-gray-100" })
+                                                  : (statusConfig[h.status] || { label: h.status, color: "text-gray-700", bg: "bg-gray-100" });
+                                                const isLast = idx === selectedOrder.historyStatus.length - 1;
+                                                return (
+                                                  <div key={idx} className="flex gap-3">
+                                                    <div className="flex flex-col items-center">
+                                                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${config.bg} ${config.color}`}>
+                                                        {idx + 1}
+                                                      </div>
+                                                      {!isLast && (
+                                                        <div className="h-full w-px bg-gray-200" />
+                                                      )}
+                                                    </div>
+                                                    <div className={`flex-1 ${isLast ? "pb-0" : "pb-4"}`}>
+                                                      <div className="flex items-center gap-2">
+                                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${config.bg} ${config.color}`}>
+                                                          {config.label}
+                                                        </span>
+                                                        <span className="text-sm text-gray-600">{h.note}</span>
+                                                      </div>
+                                                      <p className="mt-0.5 text-xs text-gray-400">
+                                                        {h.createdAt ? new Date(h.createdAt).toLocaleString("vi-VN") : "-"}
+                                                      </p>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </DialogContent>
@@ -445,6 +575,7 @@ export default function AdminOrders() {
                 </table>
               </div>
 
+              {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-sm text-gray-500">
                   Trang {page + 1}/{totalPages} - {totalElements} đơn hàng
@@ -473,6 +604,7 @@ export default function AdminOrders() {
                   </Button>
                 </div>
               </div>
+              )}
             </>
           )}
         </CardContent>

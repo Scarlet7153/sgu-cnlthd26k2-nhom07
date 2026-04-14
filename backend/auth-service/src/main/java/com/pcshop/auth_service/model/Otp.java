@@ -19,6 +19,7 @@ public class Otp {
     @Indexed(expireAfterSeconds = 900) // 15 minutes
     private Instant createdAt;
 
+    @Indexed(unique = true) // Used by findByEmail(), deleteByEmail()
     private String email;
     private String code; // 6-digit OTP
     private int attempts; // Track failed attempts

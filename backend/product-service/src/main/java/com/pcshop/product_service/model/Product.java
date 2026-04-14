@@ -21,7 +21,9 @@ import java.util.Map;
 @AllArgsConstructor
 @Builder
 @Document(collection = "products")
-@CompoundIndex(name = "specs_brand_idx", def = "{'specs_raw.Thương hiệu': 1}") 
+@CompoundIndex(name = "specs_brand_idx", def = "{'specs_raw.Thương hiệu': 1}")
+@CompoundIndex(name = "idx_category_price", def = "{'categoryId': 1, 'price': 1}")
+@CompoundIndex(name = "idx_category_brand", def = "{'categoryId': 1, 'specs_raw.Thương hiệu': 1}")
 public class Product {
     // Field chung
     @Id

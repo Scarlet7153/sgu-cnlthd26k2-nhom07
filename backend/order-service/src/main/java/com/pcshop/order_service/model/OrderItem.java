@@ -25,6 +25,9 @@ public class OrderItem {
     @Field("total_price")
     private Long totalPrice; // product_price * quantity
 
+    @Field("product_image")
+    private String productImage;
+
     @Field("warranty_months")
     private Integer warrantyMonths;
 }

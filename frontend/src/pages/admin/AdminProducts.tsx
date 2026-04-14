@@ -686,6 +686,7 @@ export default function AdminProducts() {
                 </table>
               </div>
 
+              {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-sm text-gray-500">
                   Trang {page + 1}/{totalPages} - {totalElements} sản phẩm
@@ -700,6 +701,7 @@ export default function AdminProducts() {
                   </Button>
                 </div>
               </div>
+              )}
             </>
           )}
         </CardContent>

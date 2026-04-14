@@ -209,6 +209,7 @@ export default function AdminUsers() {
                 </table>
               </div>
 
+              {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-sm text-gray-500">
                   Trang {page + 1}/{totalPages} - {totalElements} người dùng
@@ -237,6 +238,7 @@ export default function AdminUsers() {
                   </Button>
                 </div>
               </div>
+              )}
             </>
           )}
         </CardContent>

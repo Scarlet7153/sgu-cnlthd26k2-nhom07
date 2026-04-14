@@ -87,4 +87,13 @@ public class OrderController {
         Order order = orderService.updatePaymentStatus(id, request.getPaymentStatus(), adminId);
         return ResponseEntity.ok(ApiResponse.ok("Payment status updated", order));
     }
+
+    @GetMapping("/admin/stats")
+    public ResponseEntity<ApiResponse<com.pcshop.order_service.dto.response.DashboardStatsResponse>> getDashboardStats(
+            @RequestParam(defaultValue = "0") long totalUsers,
+            @RequestParam(defaultValue = "0") long totalProducts) {
+        com.pcshop.order_service.dto.response.DashboardStatsResponse stats =
+                orderService.getDashboardStats(totalUsers, totalProducts);
+        return ResponseEntity.ok(ApiResponse.ok(stats));
+    }
 }

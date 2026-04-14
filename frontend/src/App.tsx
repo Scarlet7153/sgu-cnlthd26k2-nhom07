@@ -9,6 +9,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { GuestRoute } from "@/components/GuestRoute";
 import { AdminRoute } from "@/components/AdminRoute";
+import axiosClient, { unwrapApiData } from "@/lib/axiosClient";
 
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -69,10 +70,8 @@ function AppRoutes() {
     queryClient.prefetchQuery({
       queryKey: ["categories-menu"],
       queryFn: async () => {
-        const response = await fetch("/api/categories");
-        if (!response.ok) throw new Error("Failed to fetch categories");
-        const data = await response.json();
-        return data.data || [];
+        const response = await axiosClient.get("/categories");
+        return unwrapApiData(response) || [];
       },
       staleTime: 10 * 60 * 1000, // 10 minutes
     });
@@ -81,10 +80,8 @@ function AppRoutes() {
     queryClient.prefetchQuery({
       queryKey: ["brands"],
       queryFn: async () => {
-        const response = await fetch("/api/products/brands");
-        if (!response.ok) throw new Error("Failed to fetch brands");
-        const data = await response.json();
-        return data.data || [];
+        const response = await axiosClient.get("/products/brands");
+        return unwrapApiData(response) || [];
       },
       staleTime: 5 * 60 * 1000, // 5 minutes
     });

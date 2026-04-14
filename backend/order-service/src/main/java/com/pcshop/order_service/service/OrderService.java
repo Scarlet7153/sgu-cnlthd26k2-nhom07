@@ -5,6 +5,7 @@ import com.pcshop.order_service.dto.request.CancelOrderRequest;
 import com.pcshop.order_service.dto.request.CreateOrderRequest;
 import com.pcshop.order_service.dto.request.ShippingAddressRequest;
 import com.pcshop.order_service.dto.request.UpdateOrderStatusRequest;
+import com.pcshop.order_service.dto.response.DashboardStatsResponse;
 import com.pcshop.order_service.exception.BadRequestException;
 import com.pcshop.order_service.exception.ResourceNotFoundException;
 import com.pcshop.order_service.mapper.OrderShippingAddressMapper;
@@ -12,12 +13,20 @@ import com.pcshop.order_service.model.*;
 import com.pcshop.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.List;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -28,6 +37,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final CartService cartService;
     private final OrderShippingAddressMapper shippingAddressMapper;
+    private final MongoTemplate mongoTemplate;
 
     public Order createOrder(String accountId, CreateOrderRequest request) {
         // Validate payment method
@@ -55,6 +65,7 @@ public class OrderService {
                             .productPrice(cartItem.getPrice())
                             .quantity(cartItem.getQuantity())
                             .totalPrice(cartItem.getPrice() * cartItem.getQuantity())
+                            .productImage(cartItem.getProductImage())
                             .build())
                     .collect(Collectors.toList());
             usedRedisCart = true;
@@ -67,6 +78,20 @@ public class OrderService {
                             .productPrice(item.getProductPrice())
                             .quantity(item.getQuantity())
                             .totalPrice(item.getProductPrice() * item.getQuantity())
+                            .productImage(item.getProductImage())
+                            .build())
+                    .collect(Collectors.toList());
+            usedRedisCart = true;
+        } else if (request.getItems() != null && !request.getItems().isEmpty()) {
+            // Use items from FE request (client-side cart)
+            orderItems = request.getItems().stream()
+                    .map(item -> OrderItem.builder()
+                            .productId(item.getProductId())
+                            .productName(item.getProductName())
+                            .productPrice(item.getProductPrice())
+                            .quantity(item.getQuantity())
+                            .totalPrice(item.getProductPrice() * item.getQuantity())
+                            .productImage(item.getProductImage())
                             .build())
                     .collect(Collectors.toList());
         } else {
@@ -91,7 +116,7 @@ public class OrderService {
         // Add initial status history
         order.getHistoryStatus().add(StatusHistory.builder()
                 .status(OrderConstants.STATUS_PENDING)
-                .note("Order created")
+                .note("Tạo đơn hàng")
                 .changeBy("system")
                 .createdAt(Instant.now())
                 .build());
@@ -136,9 +161,19 @@ public class OrderService {
         }
 
         order.setStatus(request.getStatus());
+        String note = request.getNote();
+        if (note == null || note.isBlank()) {
+            note = switch (request.getStatus()) {
+                case "confirmed" -> "Đã xác nhận đơn hàng";
+                case "shipping" -> "Đang giao hàng";
+                case "delivered" -> "Đã giao hàng thành công";
+                case "cancelled" -> "Đã hủy đơn hàng";
+                default -> "Cập nhật trạng thái: " + request.getStatus();
+            };
+        }
         order.getHistoryStatus().add(StatusHistory.builder()
                 .status(request.getStatus())
-                .note(request.getNote())
+                .note(note)
                 .changeBy(changedBy)
                 .createdAt(Instant.now())
                 .build());
@@ -165,7 +200,7 @@ public class OrderService {
         order.setCancelReason(request != null ? request.getCancelReason() : null);
         order.getHistoryStatus().add(StatusHistory.builder()
                 .status(OrderConstants.STATUS_CANCELLED)
-                .note(request != null ? request.getCancelReason() : "Cancelled by user")
+                .note(request != null ? request.getCancelReason() : "Đã hủy bởi người dùng")
                 .changeBy(accountId)
                 .createdAt(Instant.now())
                 .build());
@@ -184,9 +219,15 @@ public class OrderService {
 
         order.setPaymentStatus(paymentStatus);
         
+        String paymentStatusKey = "payment_" + paymentStatus;
+        String paymentNote = switch (paymentStatus) {
+            case "paid" -> "Đã thanh toán";
+            case "refunded" -> "Đã hoàn tiền";
+            default -> "Chưa thanh toán";
+        };
         order.getHistoryStatus().add(StatusHistory.builder()
-                .status(order.getStatus()) // keeping same order status
-                .note("Payment status updated to: " + paymentStatus)
+                .status(paymentStatusKey)
+                .note(paymentNote)
                 .changeBy(changedBy)
                 .createdAt(Instant.now())
                 .build());
@@ -194,5 +235,120 @@ public class OrderService {
         order = orderRepository.save(order);
         log.info("Order {} payment status updated to {}", orderId, paymentStatus);
         return order;
+    }
+
+    public DashboardStatsResponse getDashboardStats(long totalUsers, long totalProducts) {
+        List<Order> allOrders = orderRepository.findAll();
+
+        long totalOrders = allOrders.size();
+        long totalRevenue = allOrders.stream()
+                .filter(o -> !OrderConstants.STATUS_CANCELLED.equals(o.getStatus()))
+                .mapToLong(Order::getTotal)
+                .sum();
+
+        Map<String, Long> ordersByStatus = allOrders.stream()
+                .collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
+
+        Map<String, Long> revenueByStatus = allOrders.stream()
+                .filter(o -> !OrderConstants.STATUS_CANCELLED.equals(o.getStatus()))
+                .collect(Collectors.groupingBy(Order::getStatus, Collectors.summingLong(Order::getTotal)));
+
+        Map<String, Long> ordersByPaymentMethod = allOrders.stream()
+                .collect(Collectors.groupingBy(
+                        o -> o.getPaymentMethod() != null ? o.getPaymentMethod() : "UNKNOWN",
+                        Collectors.counting()));
+
+        List<DashboardStatsResponse.DailyStats> dailyRevenue = getDailyRevenueStats(allOrders);
+
+        List<DashboardStatsResponse.TopProduct> topProducts = getTopProducts(allOrders);
+
+        Map<String, Double> orderStatusPercentages = ordersByStatus.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> totalOrders > 0 ? (e.getValue() * 100.0 / totalOrders) : 0.0));
+
+        long averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+        long cancelledOrders = ordersByStatus.getOrDefault(OrderConstants.STATUS_CANCELLED, 0L);
+        double cancelRate = totalOrders > 0 ? (cancelledOrders * 100.0 / totalOrders) : 0.0;
+
+        return DashboardStatsResponse.builder()
+                .totalOrders(totalOrders)
+                .totalRevenue(totalRevenue)
+                .totalUsers(totalUsers)
+                .totalProducts(totalProducts)
+                .ordersByStatus(ordersByStatus)
+                .revenueByStatus(revenueByStatus)
+                .ordersByPaymentMethod(ordersByPaymentMethod)
+                .dailyRevenue(dailyRevenue)
+                .topProducts(topProducts)
+                .orderStatusPercentages(orderStatusPercentages)
+                .averageOrderValue(averageOrderValue)
+                .cancelRate(cancelRate)
+                .build();
+    }
+
+    private List<DashboardStatsResponse.DailyStats> getDailyRevenueStats(List<Order> allOrders) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM");
+        ZoneId zone = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate today = LocalDate.now(zone);
+
+        Map<String, DashboardStatsResponse.DailyStats> dailyMap = new LinkedHashMap<>();
+        for (int i = 6; i >= 0; i--) {
+            LocalDate date = today.minusDays(i);
+            String key = date.format(formatter);
+            dailyMap.put(key, DashboardStatsResponse.DailyStats.builder()
+                    .date(key)
+                    .revenue(0)
+                    .orderCount(0)
+                    .build());
+        }
+
+        Instant sevenDaysAgo = Instant.now().minusSeconds(7L * 24 * 3600);
+
+        for (Order order : allOrders) {
+            if (order.getCreatedAt() != null && order.getCreatedAt().isAfter(sevenDaysAgo)
+                    && !OrderConstants.STATUS_CANCELLED.equals(order.getStatus())) {
+                String dateKey = order.getCreatedAt().atZone(zone).toLocalDate().format(formatter);
+                DashboardStatsResponse.DailyStats ds = dailyMap.get(dateKey);
+                if (ds != null) {
+                    ds.setRevenue(ds.getRevenue() + order.getTotal());
+                    ds.setOrderCount(ds.getOrderCount() + 1);
+                }
+            }
+        }
+
+        return new ArrayList<>(dailyMap.values());
+    }
+
+    private List<DashboardStatsResponse.TopProduct> getTopProducts(List<Order> allOrders) {
+        Map<String, long[]> productStats = new HashMap<>();
+
+        for (Order order : allOrders) {
+            if (OrderConstants.STATUS_CANCELLED.equals(order.getStatus())
+                    || order.getItems() == null) {
+                continue;
+            }
+            for (OrderItem item : order.getItems()) {
+                String key = item.getProductId() + "|" + item.getProductName();
+                productStats.computeIfAbsent(key, k -> new long[2]);
+                productStats.get(key)[0] += item.getQuantity();
+                productStats.get(key)[1] += item.getTotalPrice();
+            }
+        }
+
+        return productStats.entrySet().stream()
+                .map(e -> {
+                    String[] parts = e.getKey().split("\\|", 2);
+                    return DashboardStatsResponse.TopProduct.builder()
+                            .productId(parts[0])
+                            .productName(parts.length > 1 ? parts[1] : "Unknown")
+                            .totalQuantity(e.getValue()[0])
+                            .totalRevenue(e.getValue()[1])
+                            .build();
+                })
+                .sorted((a, b) -> Long.compare(b.getTotalQuantity(), a.getTotalQuantity()))
+                .limit(5)
+                .collect(Collectors.toList());
     }
 }

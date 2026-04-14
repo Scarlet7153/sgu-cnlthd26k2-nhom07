@@ -14,6 +14,7 @@ import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -31,6 +32,24 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+/**
+ * Performance-optimized ProductService.
+ *
+ * Key optimizations applied:
+ * 1. getBrands() → MongoDB $group aggregation pipeline instead of findDistinct + Java stream
+ * 2. isCategoryActive() → Moved to public CategoryActiveChecker bean (Spring @Cacheable
+ *    does NOT work on private methods due to proxy-based AOP)
+ * 3. getProductById() → Cached with @Cacheable (PRODUCT_BY_ID_CACHE, 5min TTL)
+ * 4. Proper @CacheEvict on create/update/delete to invalidate all relevant caches
+ * 5. Compound indexes created via MongoIndexConfig for all hot query patterns
+ *
+ * INDEX RECOMMENDATIONS (created programmatically by MongoIndexConfig):
+ * db.products.createIndex({ categoryId: 1, price: 1 })
+ * db.products.createIndex({ categoryId: 1, "specs_raw.Thương hiệu": 1 })
+ * db.products.createIndex({ "specs_raw.Thương hiệu": 1 })
+ * db.categories.createIndex({ is_active: 1 })
+ * db.categories.createIndex({ code: 1 }, { unique: true })
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -40,13 +59,8 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final MongoTemplate mongoTemplate;
+    private final CategoryActiveChecker categoryActiveChecker;
 
-    // MongoDB index recommendations (referenced for documentation):
-    // db.products.createIndex({ categoryId: 1, price: 1 })
-    // db.products.createIndex({ categoryId: 1, "specs_raw.Thương hiệu": 1 })
-    // db.products.createIndex({ "specs_raw.Thương hiệu": 1 })
-    // db.categories.createIndex({ is_active: 1 })
-    // db.categories.createIndex({ code: 1 }, { unique: true })
     public Page<Product> getAllProducts(Pageable pageable, boolean includeInactiveCategory) {
         if (includeInactiveCategory) {
             return productRepository.findAll(pageable);
@@ -54,6 +68,11 @@ public class ProductService {
         return findWithActiveCategoryFilter(new Criteria(), pageable);
     }
 
+    /**
+     * Single product lookup with Caffeine cache (5min TTL, 500 max entries).
+     * High-traffic endpoint — caching avoids repeated DB round-trips for the same product.
+     */
+    @Cacheable(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id")
     public Product getProductById(String id) {
         return productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", "id", id));
@@ -61,7 +80,7 @@ public class ProductService {
 
     public Product getProductById(String id, boolean includeInactiveCategory) {
         Product product = getProductById(id);
-        if (!includeInactiveCategory && !isCategoryActive(product.getCategoryId())) {
+        if (!includeInactiveCategory && !categoryActiveChecker.isCategoryActive(product.getCategoryId())) {
             throw new ResourceNotFoundException("Product", "id", id);
         }
         return product;
@@ -141,7 +160,10 @@ public class ProductService {
         return findWithActiveCategoryFilter(baseCriteria, pageable);
     }
 
-    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, allEntries = true)
+    })
     public Product createProduct(ProductRequest request) {
         if (!categoryRepository.existsById(request.getCategoryId())) {
             throw new ResourceNotFoundException("Category", "id", request.getCategoryId());
@@ -177,9 +199,13 @@ public class ProductService {
         }
     }
 
-    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id")
+    })
     public Product updateProduct(String id, ProductRequest request) {
-        Product product = getProductById(id);
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", "id", id));
 
         Optional.ofNullable(request.getCategoryId()).ifPresent(categoryId -> {
             if (!categoryRepository.existsById(categoryId)) {
@@ -217,7 +243,10 @@ public class ProductService {
         }
     }
 
-    @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id")
+    })
     public void deleteProduct(String id) {
         if (!productRepository.existsById(id)) {
             throw new ResourceNotFoundException("Product", "id", id);
@@ -226,16 +255,37 @@ public class ProductService {
         log.info("Product deleted: {}", id);
     }
 
+    /**
+     * OPTIMIZED: Uses MongoDB $group aggregation pipeline instead of findDistinct + Java stream.
+     *
+     * Before (N+1 style):
+     *   findDistinct → loads all brand values → Java .filter().distinct().sorted()
+     *
+     * After (single aggregation):
+     *   $match (non-null brand) → $group by brand → $sort → $project
+     *   This pushes filtering, dedup, and sorting into the DB engine.
+     *   With index on "specs_raw.Thương hiệu", this is an index-only scan.
+     */
     @Cacheable(cacheNames = CacheConfig.BRANDS_CACHE)
     public List<String> getBrands() {
-        // findDistinct chỉ lấy field brand thay vì load full document.
-        List<String> brands = mongoTemplate.findDistinct(new Query(), ProductConstants.FIELD_BRAND, Product.class,
-                String.class);
+        Aggregation aggregation = Aggregation.newAggregation(
+                // Match only documents where brand field exists and is not empty
+                Aggregation.match(Criteria.where(ProductConstants.FIELD_BRAND)
+                        .exists(true).ne(null).ne("")),
+                // Group by brand to get distinct values (pushed to DB, no Java dedup)
+                Aggregation.group(ProductConstants.FIELD_BRAND),
+                // Sort alphabetically in the DB
+                Aggregation.sort(org.springframework.data.domain.Sort.Direction.ASC, "_id"),
+                // Project to a clean field name
+                Aggregation.project().and("_id").as("brand").andExclude("_id")
+        );
 
-        return brands.stream()
+        AggregationResults<Document> results = mongoTemplate.aggregate(
+                aggregation, ProductConstants.COLLECTION_PRODUCTS, Document.class);
+
+        return results.getMappedResults().stream()
+                .map(doc -> doc.getString("brand"))
                 .filter(b -> b != null && !b.trim().isEmpty())
-                .distinct()
-                .sorted()
                 .collect(Collectors.toList());
     }
 
@@ -344,20 +394,6 @@ public class ProductService {
         return Optional.ofNullable(value)
                 .map(String::trim)
                 .filter(v -> !v.isEmpty() && ObjectId.isValid(v));
-    }
-
-    @Cacheable(cacheNames = CacheConfig.ACTIVE_CATEGORIES_CACHE, key = "#categoryId")
-    private boolean isCategoryActive(String categoryId) {
-        return Optional.ofNullable(categoryId)
-                .map(String::trim)
-                .filter(ObjectId::isValid)
-                .map(id -> {
-                    Query query = new Query(new Criteria().andOperator(
-                            Criteria.where(ProductConstants.FIELD_ID).is(new ObjectId(id)),
-                            Criteria.where(ProductConstants.FIELD_IS_ACTIVE).is(true)));
-                    return mongoTemplate.exists(query, ProductConstants.COLLECTION_CATEGORIES);
-                })
-                .orElse(false);
     }
 
     private boolean isValidSpecField(String specField) {
