@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 
 import axiosClient, { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClient";
 
@@ -65,6 +66,7 @@ interface AuthContextValue {
   updateProfile: (data: Partial<Omit<User, "id" | "email">>) => void;
   verifyOtp: (email: string, otp: string) => Promise<{ error?: string }>;
   resendOtp: (email: string) => Promise<{ error?: string }>;
+  getAccessToken: () => string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -192,6 +194,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(null);
     localStorage.removeItem("auth-user");
+    
+    toast.success("Đăng xuất thành công", {
+      duration: 2000,
+    });
   }, []);
 
   const updateProfile = useCallback((data: Partial<Omit<User, "id" | "email">>) => {
@@ -205,9 +211,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
+  const getAccessToken = useCallback(() => {
+    return user?.token || null;
+  }, [user]);
+
   const value = useMemo<AuthContextValue>(() => ({
-    user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp,
-  }), [user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp]);
+    user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp, getAccessToken,
+  }), [user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp, getAccessToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

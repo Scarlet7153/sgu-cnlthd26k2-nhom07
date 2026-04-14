@@ -11,6 +11,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
 
+# JWT Configuration for WebSocket
+jwt:
+  secret: ${JWT_SECRET:pcshop-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256}
+
 eureka:
   client:
     service-url:

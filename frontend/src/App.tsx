@@ -14,6 +14,7 @@ import axiosClient, { unwrapApiData } from "@/lib/axiosClient";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
+import { WebSocketNotifications } from "@/components/WebSocketNotifications";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const ProductListPage = lazy(() => import("./pages/ProductListPage"));
@@ -137,6 +138,7 @@ function AppRoutes() {
 function AppContent() {
   return (
     <BrowserRouter>
+      <WebSocketNotifications />
       <AppRoutes />
     </BrowserRouter>
   );

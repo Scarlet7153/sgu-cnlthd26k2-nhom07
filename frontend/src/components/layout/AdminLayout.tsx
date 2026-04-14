@@ -9,7 +9,6 @@ import {
   ShoppingCart,
   Users,
   FolderTree,
-  Settings,
   Menu,
   LogOut,
   Bell,
@@ -19,9 +18,8 @@ const sidebarItems = [
   { title: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { title: "Sản phẩm", href: "/admin/products", icon: Package },
   { title: "Đơn hàng", href: "/admin/orders", icon: ShoppingCart },
-  { title: "Người dùng", href: "/admin/users", icon: Users },
+  { title: "Ngườii dùng", href: "/admin/users", icon: Users },
   { title: "Danh mục", href: "/admin/categories", icon: FolderTree },
-  { title: "Cài đặt", href: "/admin/settings", icon: Settings },
 ];
 
 function Sidebar({ className }: { className?: string }) {
