@@ -9,8 +9,9 @@ import psuIcon from "@/assets/PSU.png";
 import caseIcon from "@/assets/CASE.png";
 import fanIcon from "@/assets/FAN.png";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ShoppingCart, Menu, Sun, Moon, Search, User, LogOut, Cpu, CircuitBoard, MonitorPlay, MemoryStick, HardDrive, PlugZap, Computer, Fan, Package, UserCircle, List, ChevronRight, ChevronDown } from "lucide-react";
+import { ShoppingCart, Menu, Sun, Moon, Search, User, LogOut, Cpu, CircuitBoard, MonitorPlay, MemoryStick, HardDrive, PlugZap, Computer, Fan, Package, UserCircle, List, ChevronRight, ChevronDown, Heart } from "lucide-react";
 import { useCart } from "@/hooks/useCart";
+import { useWishlist } from "@/hooks/useWishlist";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,7 @@ function useDebounce<T>(value: T, delay: number): T {
 
 export default function Header() {
   const { totalItems } = useCart();
+  const { totalItems: wishlistCount } = useWishlist();
   const { user, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -405,6 +407,17 @@ export default function Header() {
               {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
 
+            <Link to="/wishlist">
+              <Button variant="ghost" size="icon" className="relative text-muted-foreground">
+                <Heart className={`h-5 w-5 ${wishlistCount > 0 ? "fill-red-500 text-red-500" : ""}`} />
+                {wishlistCount > 0 && (
+                  <Badge className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 p-0 text-[10px] text-white">
+                    {wishlistCount}
+                  </Badge>
+                )}
+              </Button>
+            </Link>
+
             <Link to="/cart">
               <Button variant="ghost" size="icon" className="relative text-muted-foreground">
                 <ShoppingCart className="h-5 w-5" />
@@ -431,6 +444,9 @@ export default function Header() {
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild className="cursor-pointer">
                     <Link to="/orders" className="flex items-center"><Package className="mr-2 h-4 w-4" /> Đơn hàng</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="cursor-pointer">
+                    <Link to="/wishlist" className="flex items-center"><Heart className="mr-2 h-4 w-4" /> Yêu thích</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={signOut} className="text-destructive cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" /> Đăng xuất

@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/shared/EmptyState";
 import ProductCard from "@/components/shared/ProductCard";
+import ProductReviews from "@/components/shared/ProductReviews";
 import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
 import { useProductDetail, useProducts } from "@/hooks/useProducts";
 
@@ -419,75 +420,12 @@ export default function ProductDetailPage() {
         </TabsContent>
 
         <TabsContent value="reviews" className="mt-6">
-          <div className="rounded-lg border border-border bg-card p-6">
-            {/* Rating summary */}
-            <div className="flex flex-col items-center gap-6 sm:flex-row">
-              <div className="text-center">
-                <p className="text-5xl font-extrabold text-foreground">{product.rating}</p>
-                <div className="mt-2 flex items-center justify-center gap-0.5">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`h-5 w-5 ${i < Math.floor(product.rating)
-                        ? "fill-yellow-400 text-yellow-400"
-                        : "text-muted-foreground/30"
-                        }`}
-                    />
-                  ))}
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{product.reviewCount} đánh giá</p>
-              </div>
-              <Separator orientation="vertical" className="hidden h-24 sm:block" />
-              <div className="flex-1 space-y-2">
-                {[5, 4, 3, 2, 1].map((star) => {
-                  const pct = star === 5 ? 68 : star === 4 ? 22 : star === 3 ? 7 : star === 2 ? 2 : 1;
-                  return (
-                    <div key={star} className="flex items-center gap-2 text-sm">
-                      <span className="w-3 text-right text-muted-foreground">{star}</span>
-                      <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full bg-yellow-400" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="w-8 text-xs text-muted-foreground">{pct}%</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <Separator className="my-6" />
-
-            {/* Sample reviews */}
-            <div className="space-y-6">
-              {[
-                { name: "Nguyễn Văn A", rating: 5, date: "15/02/2026", comment: "Sản phẩm rất tốt, hiệu năng vượt mong đợi. Đóng gói cẩn thận, giao hàng nhanh." },
-                { name: "Trần Thị B", rating: 4, date: "10/02/2026", comment: "Chất lượng ổn, giá cả hợp lý. Tuy nhiên cần cải thiện thêm phần hướng dẫn sử dụng." },
-                { name: "Lê Minh C", rating: 5, date: "05/02/2026", comment: "Đã mua lần thứ 2 rồi. Luôn hài lòng với sản phẩm và dịch vụ của shop!" },
-              ].map((review, i) => (
-                <div key={i} className="flex gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                    {review.name.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">{review.name}</p>
-                      <span className="text-xs text-muted-foreground">{review.date}</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-0.5">
-                      {Array.from({ length: 5 }).map((_, j) => (
-                        <Star
-                          key={j}
-                          className={`h-3.5 w-3.5 ${j < review.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"
-                            }`}
-                        />
-                      ))}
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{review.comment}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ProductReviews
+            productId={product.id}
+            productName={product.name}
+            averageRating={product.rating}
+            reviewCount={product.reviewCount}
+          />
         </TabsContent>
       </Tabs>
 

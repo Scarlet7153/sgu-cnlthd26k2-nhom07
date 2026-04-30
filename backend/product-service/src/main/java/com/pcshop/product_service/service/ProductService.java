@@ -61,6 +61,8 @@ public class ProductService {
     private final MongoTemplate mongoTemplate;
     private final CategoryActiveChecker categoryActiveChecker;
 
+    @Cacheable(cacheNames = CacheConfig.PRODUCT_LIST_CACHE,
+               key = "'all:' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort.toString() + ':' + #includeInactiveCategory")
     public Page<Product> getAllProducts(Pageable pageable, boolean includeInactiveCategory) {
         if (includeInactiveCategory) {
             return productRepository.findAll(pageable);
@@ -90,6 +92,8 @@ public class ProductService {
         return getProductsByCategory(categoryId, pageable, false);
     }
 
+    @Cacheable(cacheNames = CacheConfig.PRODUCT_LIST_CACHE,
+               key = "'cat:' + #categoryId + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort.toString() + ':' + #includeInactiveCategory")
     public Page<Product> getProductsByCategory(String categoryId, Pageable pageable, boolean includeInactiveCategory) {
         Optional<String> catId = parseObjectId(categoryId);
         if (catId.isEmpty()) {
@@ -162,7 +166,8 @@ public class ProductService {
 
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, allEntries = true)
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, allEntries = true),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_LIST_CACHE, allEntries = true)
     })
     public Product createProduct(ProductRequest request) {
         if (!categoryRepository.existsById(request.getCategoryId())) {
@@ -201,7 +206,8 @@ public class ProductService {
 
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_LIST_CACHE, allEntries = true)
     })
     public Product updateProduct(String id, ProductRequest request) {
         Product product = productRepository.findById(id)
@@ -245,7 +251,8 @@ public class ProductService {
 
     @Caching(evict = {
             @CacheEvict(cacheNames = CacheConfig.BRANDS_CACHE, allEntries = true),
-            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id")
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_BY_ID_CACHE, key = "#id"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT_LIST_CACHE, allEntries = true)
     })
     public void deleteProduct(String id) {
         if (!productRepository.existsById(id)) {

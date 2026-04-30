@@ -54,6 +54,7 @@ export function getApiErrorMessage(error: unknown, fallback = "Đã xảy ra l�
   return fallback;
 }
 
+// ==================== Request Interceptor ====================
 axiosClient.interceptors.request.use(
   (config) => {
     const userStr = localStorage.getItem("auth-user");
@@ -73,9 +74,100 @@ axiosClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// ==================== Response Interceptor with Auto Refresh ====================
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((promise) => {
+    if (token) {
+      promise.resolve(token);
+    } else {
+      promise.reject(error);
+    }
+  });
+  failedQueue = [];
+};
+
 axiosClient.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // If 401 and not a refresh/login/register request, try to refresh token
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes("/auth/login") &&
+      !originalRequest.url?.includes("/auth/register") &&
+      !originalRequest.url?.includes("/auth/refresh") &&
+      !originalRequest.url?.includes("/auth/forgot-password") &&
+      !originalRequest.url?.includes("/auth/reset-password")
+    ) {
+      if (isRefreshing) {
+        // Queue this request until refresh completes
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return axiosClient(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const userStr = localStorage.getItem("auth-user");
+        if (!userStr) throw new Error("No auth data");
+
+        const user = JSON.parse(userStr);
+        if (!user.refreshToken) throw new Error("No refresh token");
+
+        // Call refresh endpoint directly with axios (not axiosClient) to avoid interceptor loop
+        const refreshResponse = await axios.post(
+          `${apiBaseUrl}/auth/refresh`,
+          { refreshToken: user.refreshToken },
+          { headers: { "Content-Type": "application/json" } }
+        );
+
+        const refreshData = refreshResponse.data?.data || refreshResponse.data;
+        const newAccessToken = refreshData?.accessToken;
+        const newRefreshToken = refreshData?.refreshToken;
+
+        if (!newAccessToken) throw new Error("No access token in refresh response");
+
+        // Update stored user data
+        const updatedUser = {
+          ...user,
+          token: newAccessToken,
+          refreshToken: newRefreshToken || user.refreshToken,
+        };
+        localStorage.setItem("auth-user", JSON.stringify(updatedUser));
+
+        // Retry original request with new token
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        processQueue(null, newAccessToken);
+
+        return axiosClient(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        // Refresh failed — clear auth and let user re-login
+        localStorage.removeItem("auth-user");
+        // Dispatch a custom event so AuthContext can react
+        window.dispatchEvent(new Event("auth:session-expired"));
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    // For non-401 errors or auth endpoints, just remove user on 401
     if (error.response && error.response.status === 401) {
       localStorage.removeItem("auth-user");
     }

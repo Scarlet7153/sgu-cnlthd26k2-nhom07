@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
-import { ShoppingCart, Star } from "lucide-react";
+import { Heart, ShoppingCart, Star } from "lucide-react";
 import { Product } from "@/types/product.types";
 import { formatPrice } from "@/lib/format";
 import { useCart } from "@/hooks/useCart";
+import { useWishlist } from "@/hooks/useWishlist";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -18,17 +19,29 @@ function getShortSpecs(product: Product): string {
 
 export default function ProductCard({ product }: ProductCardProps) {
   const { addToCart } = useCart();
+  const { isInWishlist, toggleWishlist } = useWishlist();
   const { toast } = useToast();
   const hasDiscount = product.originalPrice && product.originalPrice > product.price;
   const discountPercent = hasDiscount
     ? Math.round((1 - product.price / product.originalPrice!) * 100)
     : 0;
+  const wishlisted = isInWishlist(product.id);
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     addToCart(product);
     toast({ title: "Đã thêm vào giỏ hàng", description: product.name });
+  };
+
+  const handleToggleWishlist = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleWishlist(product);
+    toast({
+      title: wishlisted ? "Đã bỏ yêu thích" : "Đã thêm vào yêu thích",
+      description: product.name,
+    });
   };
 
   return (
@@ -41,11 +54,17 @@ export default function ProductCard({ product }: ProductCardProps) {
         <img
           src={product.images?.[0]}
           alt={product.name}
-          className="h-full w-full object-contain"
+          className="h-full w-full object-contain transition-opacity duration-300"
           loading="lazy"
+          decoding="async"
+          onLoad={(e) => {
+            e.currentTarget.style.opacity = "1";
+          }}
           onError={(e) => {
             e.currentTarget.src = "https://placehold.co/400x300/png?text=No+Image";
+            e.currentTarget.style.opacity = "1";
           }}
+          style={{ opacity: 0 }}
         />
         <div className="absolute left-2 top-2 flex flex-col gap-1">
           {product.featured && (
@@ -57,6 +76,17 @@ export default function ProductCard({ product }: ProductCardProps) {
             </Badge>
           )}
         </div>
+        {/* Wishlist button */}
+        <button
+          onClick={handleToggleWishlist}
+          className={`absolute right-2 top-2 z-10 rounded-full p-1.5 backdrop-blur-sm transition-colors ${
+            wishlisted
+              ? "bg-red-50 text-red-500 dark:bg-red-950/50"
+              : "bg-background/70 text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50"
+          }`}
+        >
+          <Heart className={`h-4 w-4 ${wishlisted ? "fill-red-500" : ""}`} />
+        </button>
       </div>
 
       {/* Info */}

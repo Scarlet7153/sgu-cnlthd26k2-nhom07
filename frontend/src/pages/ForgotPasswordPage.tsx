@@ -6,13 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Cpu } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   document.title = "Quên mật khẩu - PCShop";
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, forgotPassword } = useAuth();
 
   useEffect(() => {
     if (user) {
@@ -27,11 +26,20 @@ export default function ForgotPasswordPage() {
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Mock password reset - just show success message
-    setTimeout(() => {
-      setLoading(false);
-      setSent(true);
-    }, 1000);
+
+    const { error } = await forgotPassword(email);
+    setLoading(false);
+
+    if (error) {
+      toast({ title: "Lỗi", description: error, variant: "destructive" });
+      return;
+    }
+
+    setSent(true);
+    toast({
+      title: "Đã gửi mã OTP",
+      description: "Kiểm tra email để lấy mã OTP đặt lại mật khẩu.",
+    });
   };
 
   return (
@@ -46,9 +54,24 @@ export default function ForgotPasswordPage() {
 
         {sent ? (
           <div className="rounded-lg border border-border bg-card p-6 text-center">
-            <p className="text-foreground font-medium">Email đã được gửi!</p>
-            <p className="mt-2 text-sm text-muted-foreground">Kiểm tra hộp thư để đặt lại mật khẩu.</p>
-            <Link to="/login"><Button variant="outline" className="mt-4">Quay lại đăng nhập</Button></Link>
+            <p className="text-foreground font-medium">Mã OTP đã được gửi!</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Kiểm tra hộp thư <strong>{email}</strong> để lấy mã OTP.
+            </p>
+            <Button
+              variant="default"
+              className="mt-4 w-full"
+              onClick={() => navigate("/reset-password", { state: { email } })}
+            >
+              Nhập mã OTP để đặt lại mật khẩu
+            </Button>
+            <Button
+              variant="ghost"
+              className="mt-2 w-full"
+              onClick={() => { setSent(false); }}
+            >
+              Gửi lại mã
+            </Button>
           </div>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">
@@ -57,7 +80,7 @@ export default function ForgotPasswordPage() {
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" required />
             </div>
             <Button type="submit" className="w-full bg-primary text-primary-foreground" disabled={loading}>
-              {loading ? "Đang gửi..." : "Gửi link đặt lại mật khẩu"}
+              {loading ? "Đang gửi..." : "Gửi mã OTP đặt lại mật khẩu"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="text-primary hover:underline">← Quay lại đăng nhập</Link>

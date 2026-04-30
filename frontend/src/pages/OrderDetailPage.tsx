@@ -4,10 +4,12 @@ import { useOrders, Order } from "@/hooks/useOrders";
 import { formatPrice } from "@/lib/format";
 import {
   ChevronRight, Package, MapPin, CreditCard, Phone, Mail,
-  StickyNote, Loader2, XCircle, CheckCircle2
+  StickyNote, Loader2, XCircle, CheckCircle2, FileDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import OrderTimeline from "@/components/shared/OrderTimeline";
+import { generateOrderInvoicePDF } from "@/lib/generateInvoicePDF";
 
 const STATUS_LABEL: Record<string, string> = {
   pending:   "Chờ xác nhận",
@@ -153,6 +155,17 @@ export default function OrderDetailPage() {
               Hủy đơn hàng
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              generateOrderInvoicePDF(order);
+              toast({ title: "Đã tải hóa đơn PDF", description: `Hóa đơn #${order.id.slice(0, 8).toUpperCase()} đã được tải xuống.` });
+            }}
+            className="gap-1.5"
+          >
+            <FileDown className="h-3.5 w-3.5" /> Xuất PDF
+          </Button>
         </div>
       </div>
 
@@ -334,6 +347,11 @@ export default function OrderDetailPage() {
               </h3>
               <p className="text-sm text-muted-foreground">{order.note}</p>
             </div>
+          )}
+
+          {/* Order Timeline */}
+          {order.historyStatus && order.historyStatus.length > 0 && (
+            <OrderTimeline historyStatus={order.historyStatus} />
           )}
         </div>
       </div>
