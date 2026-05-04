@@ -131,6 +131,24 @@ services:
     networks:
       - backend-net
 
+  # =============================================
+  # AI Agent Service
+  # =============================================
+  agentic-rag-service:
+    build: ./agentic-rag-service
+    container_name: agentic-rag-service
+    ports:
+      - "8090:8090"
+    env_file:
+      - ./agentic-rag-service/.env
+    environment:
+      - EUREKA_SERVER=http://eureka-service:8761/eureka/
+    depends_on:
+      eureka-service:
+        condition: service_healthy
+    networks:
+      - backend-net
+
 # =============================================
 # Volumes & Networks
 # =============================================
