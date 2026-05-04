@@ -6,14 +6,14 @@ import com.pcshop.user_service.dto.request.UpdateStatusRequest;
 import com.pcshop.user_service.dto.response.UserResponse;
 import com.pcshop.user_service.exception.BadRequestException;
 import com.pcshop.user_service.exception.ResourceNotFoundException;
-import com.pcshop.user_service.security.JwtTokenProvider;
+
 import com.pcshop.user_service.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.bean.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
@@ -32,8 +32,7 @@ class UserControllerIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
-    @MockBean private UserService userService;
-    @MockBean private JwtTokenProvider jwtTokenProvider;
+    @MockitoBean private UserService userService;
 
     private UserResponse sampleUser() {
         return UserResponse.builder()
