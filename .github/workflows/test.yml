@@ -13,6 +13,11 @@ on:
       - 'backend/**'
       - 'frontend/**'
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 env:
   NODE_VERSION: '20'
   JAVA_VERSION: '21'
@@ -56,7 +61,7 @@ jobs:
 
       - name: Generate JaCoCo coverage report
         working-directory: backend/${{ matrix.service }}
-        run: mvn jacoco:report -B
+        run: mvn jacoco:report -B || true
         if: always()
 
       - name: Upload test results
@@ -339,6 +344,7 @@ jobs:
       # Comment PR with coverage summary
       - name: Comment PR
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
