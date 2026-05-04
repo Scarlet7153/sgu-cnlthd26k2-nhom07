@@ -521,24 +521,23 @@ class OrchestratorAgent:
             # For high budgets, supplement with cross-platform CPUs and mainboards
             bc_supp = OrchestratorAgent._extract_budget_constraints(context, query)
             supp_budget = bc_supp.get("budget_max")
-            if isinstance(supp_budget, (int, float)) and supp_budget >= 16_000_000:
+            if isinstance(supp_budget, (int, float)) and supp_budget >= 15_000_000:
                 existing_ids = {p.product_id for p in products}
                 selected_brand = OrchestratorAgent._extract_selected_brand(context)
                 supp_config = [
                     ("CPU", 0.30),
-                    ("MAINBOARD", 0.30),
+                    ("MAINBOARD", None),  # No target: get broadest range to include budget LGA1700 boards
                     ("GPU", 0.50),
                 ]
                 for supp_slot, supp_target_ratio in supp_config:
+                    target_price = float(supp_budget) * supp_target_ratio if supp_target_ratio else None
                     supp_docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
                         slot=supp_slot,
                         budget_max=float(supp_budget),
-                        target_price=float(supp_budget) * supp_target_ratio,
-                        limit=20,
+                        target_price=target_price,
+                        limit=50,
                         exclude_product_ids=[],
                         selected_brand=selected_brand,
-                        preferred_socket=None,
-                        preferred_platform=None,
                     )
                     for doc in supp_docs:
                         doc_id = str(doc.get("_id", ""))
@@ -684,6 +683,7 @@ class OrchestratorAgent:
         # For replacement flows, use full budget instead of remaining
         if replacement_slot and isinstance(budget_max, (int, float)):
             budget_constraints["remaining_budget"] = float(budget_max)
+            budget_constraints["budget_max"] = float(budget_max) * 2  # Double to avoid slot cap
 
         products = [
             p for p in products
@@ -815,6 +815,11 @@ class OrchestratorAgent:
             purpose=detected_purpose,
             budget_exact=int(bc.get("budget_max")) if bc.get("budget_max") else None,
         )
+
+        # Convert external store URLs to local product links
+        for item in primary_build:
+            if item.url and ("phongvu" in item.url.lower() or item.url.startswith("http")):
+                item.url = f"/product/{item.product_id}"
 
         return ChatResponse(
             answer=answer,
@@ -1070,7 +1075,7 @@ class OrchestratorAgent:
                 slot=slot,
                 budget_max=float(slot_budget_max),
                 target_price=target_price,
-                limit=36,
+                limit=50,
                 selected_brand=selected_brand,
                 preferred_socket=cpu_socket if slot == "MAINBOARD" else None,
                 preferred_platform=cpu_platform if slot == "MAINBOARD" else None,
@@ -1081,7 +1086,7 @@ class OrchestratorAgent:
                     slot=slot,
                     budget_max=float(slot_budget_max),
                     target_price=None,
-                    limit=48,
+                    limit=50,
                     selected_brand=selected_brand,
                     preferred_socket=None,  # No socket filter in fallback
                     preferred_platform=cpu_platform if slot == "MAINBOARD" else None,
@@ -1341,7 +1346,7 @@ class OrchestratorAgent:
             slot="MAINBOARD",
             budget_max=float(budget_max),
             target_price=target_mb_price,
-            limit=72,
+            limit=50,
             exclude_product_ids=[mb_item.product_id],
             selected_brand=selected_brand,
             preferred_socket=cpu_socket,
@@ -1390,7 +1395,7 @@ class OrchestratorAgent:
             slot="CPU",
             budget_max=float(budget_max),
             target_price=mb_price,
-            limit=36,
+            limit=50,
             exclude_product_ids=[cpu_item.product_id],
             selected_brand=selected_brand,
             preferred_socket=mainboard_socket,
@@ -1549,7 +1554,7 @@ class OrchestratorAgent:
             slot="GPU",
             budget_max=float(gpu_price) if isinstance(gpu_price, (int, float)) and gpu_price > 0 else float(budget_max),
             target_price=target_gpu,
-            limit=40,
+            limit=50,
             exclude_product_ids=[gpu_item.product_id],
             selected_brand=selected_brand,
         )
@@ -1592,7 +1597,7 @@ class OrchestratorAgent:
             slot="CPU",
             budget_max=float(budget_max),
             target_price=target_cpu,
-            limit=40,
+            limit=50,
             exclude_product_ids=[cpu_item.product_id],
             selected_brand=selected_brand,
             preferred_socket=preferred_socket,
@@ -1660,7 +1665,7 @@ class OrchestratorAgent:
                     slot="CPU",
                     budget_max=cpu_cap,
                     target_price=cpu_cap * 0.9,
-                    limit=48,
+                    limit=50,
                     exclude_product_ids=[cpu_item.product_id],
                     selected_brand=selected_brand,
                     preferred_socket=mb_socket,
@@ -1712,7 +1717,7 @@ class OrchestratorAgent:
                     slot="MAINBOARD",
                     budget_max=mb_cap,
                     target_price=mb_cap * 0.9,
-                    limit=48,
+                    limit=50,
                     exclude_product_ids=[mb_item.product_id],
                     selected_brand=selected_brand,
                     preferred_socket=cpu_socket,
@@ -2033,7 +2038,7 @@ class OrchestratorAgent:
                             slot=slot,
                             budget_max=float(available_room),
                             target_price=target_price,
-                            limit=30,
+                        limit=50,
                             exclude_product_ids=[current_item.product_id],
                             selected_brand=selected_brand,
                             preferred_socket=None,
@@ -2063,7 +2068,7 @@ class OrchestratorAgent:
                                         slot="MAINBOARD",
                                         budget_max=float(mb_remaining),
                                         target_price=mb_remaining * 0.5,
-                                        limit=10,
+                                        limit=50,
                                         exclude_product_ids=[],
                                         selected_brand=selected_brand,
                                         preferred_socket=cross_socket,
@@ -3257,7 +3262,7 @@ class OrchestratorAgent:
                 slot=slot,
                 budget_max=effective_budget,
                 target_price=target_price,
-                limit=24,
+                limit=50,
                 selected_brand=selected_brand,
             )
 
@@ -3494,6 +3499,7 @@ class OrchestratorAgent:
 
         constraints_for_filter = dict(constraints)
         constraints_for_filter["remaining_budget"] = float(budget_max) if isinstance(budget_max, (int, float)) else None
+        constraints_for_filter.pop("budget_max", None)
 
         def _to_products(candidates: List[Dict[str, Any]], reason_text: str) -> List[ProductSuggestion]:
             converted: List[ProductSuggestion] = []
@@ -3555,6 +3561,7 @@ class OrchestratorAgent:
                     if numeric_price is None or numeric_price <= selected_slot_price:
                         rejected_count += 1
                         continue
+
                 if not OrchestratorAgent._is_within_budget_constraints(
                     price=numeric_price,
                     slot=suggestion_slot,
@@ -3679,6 +3686,8 @@ class OrchestratorAgent:
             "manh hon",
             "tot hon",
             "xong hon",
+            "mac hon",
+            "dat hon",
             "nang cap",
             "tang dung luong",
             "dung luong cao",
@@ -4626,7 +4635,7 @@ class OrchestratorAgent:
                 ratio_table = LOW_BUDGET_SLOT_CAP_RATIO if enforce_slot_caps else LOW_BUDGET_RELAXED_SLOT_CAP_RATIO
             elif gaming_mode:
                 ratio_table = GAMING_SLOT_CAP_RATIO if enforce_slot_caps else GAMING_RELAXED_SLOT_CAP_RATIO
-            elif (design_mode or streaming_mode) and isinstance(budget_max, (int, float)) and budget_max >= 16_000_000:
+            elif (design_mode or streaming_mode) and isinstance(budget_max, (int, float)) and budget_max >= 15_000_000:
                 # For design/streaming at high budgets, use gaming ratios for better GPU
                 ratio_table = GAMING_SLOT_CAP_RATIO if enforce_slot_caps else GAMING_RELAXED_SLOT_CAP_RATIO
             elif design_mode:
@@ -5168,7 +5177,7 @@ class OrchestratorAgent:
             slot="CPU",
             budget_max=float(budget_max),
             target_price=float(cpu_price * 1.1) if cpu_price > 0 else None,
-            limit=40,
+            limit=50,
             exclude_product_ids=[cpu_item.product_id],
             selected_brand=selected_brand,
             preferred_socket=preferred_socket,
