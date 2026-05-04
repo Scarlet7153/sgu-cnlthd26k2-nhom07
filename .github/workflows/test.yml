@@ -2,13 +2,13 @@ name: Test Suite
 
 on:
   push:
-    branches: [main, develop, 'feature/**']
+    branches: [main, develop, dev, 'feature/**']
     paths:
       - 'backend/**'
       - 'frontend/**'
       - '.github/workflows/test.yml'
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, dev]
     paths:
       - 'backend/**'
       - 'frontend/**'
