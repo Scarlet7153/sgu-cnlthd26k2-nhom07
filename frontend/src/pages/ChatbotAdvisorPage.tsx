@@ -830,7 +830,7 @@ export default function ChatbotAdvisorPage() {
     try {
       const key = `advisor-chat-state:${sessionId}`;
       localStorage.removeItem(key);
-    } catch {}
+    } catch { /* Ignore if key does not exist */ }
     const newId = regenerateAdvisorSessionId();
     setSessionId(newId);
     setCurrentFilters(EMPTY_FILTERS);
