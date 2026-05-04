@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Dict, List
 
 from pymongo import ASCENDING, DESCENDING, MongoClient
@@ -7,10 +8,18 @@ from app.schemas.build_session import BuildComponentPayload
 
 
 class PCBuildSessionService:
-    def __init__(self, mongodb_uri: str, database: str, collection: str, required_slots: List[str]) -> None:
+    def __init__(
+        self,
+        mongodb_uri: str,
+        database: str,
+        collection: str,
+        required_slots: List[str],
+        mongo_search_service: Any | None = None,
+    ) -> None:
         self.client = MongoClient(mongodb_uri) if mongodb_uri else None
         self.collection = self.client[database][collection] if self.client else None
         self.required_slots = [slot.strip().upper() for slot in required_slots if slot.strip()]
+        self.mongo_search_service = mongo_search_service
 
         if self.collection is not None:
             self.collection.create_index([("session_id", ASCENDING)], unique=True)
@@ -70,6 +79,7 @@ class PCBuildSessionService:
         }
 
         selected_components = [c for c in doc.get("selected_components", []) if c.get("slot") != slot]
+        self._validate_hardware_compatibility(payload=payload, selected_components=selected_components)
         selected_components.append(component)
         total_price = sum((c.get("price", 0) or 0) * (c.get("quantity", 1) or 1) for c in selected_components)
 
@@ -130,3 +140,40 @@ class PCBuildSessionService:
             "missing_slots": missing_slots,
             "total_price": doc.get("total_price", 0) or 0,
         }
+
+    def _validate_hardware_compatibility(
+        self,
+        payload: BuildComponentPayload,
+        selected_components: List[Dict[str, Any]],
+    ) -> None:
+        if self.mongo_search_service is None:
+            return
+
+        from app.services.compatibility_checker import validate_build
+
+        # Gather all product IDs to fetch from DB
+        product_ids = [payload.product_id]
+        for c in selected_components:
+            if c.get("product_id"):
+                product_ids.append(str(c.get("product_id")))
+
+        docs = self.mongo_search_service.get_products_by_ids(product_ids)
+        if not docs:
+            return
+
+        # Inject _selected_slot into docs so validate_build knows what slot they belong to
+        for doc in docs:
+            doc_id = str(doc.get("_id", ""))
+            if doc_id == payload.product_id:
+                doc["_selected_slot"] = payload.slot
+            else:
+                for c in selected_components:
+                    if str(c.get("product_id", "")) == doc_id:
+                        doc["_selected_slot"] = c.get("slot")
+                        break
+
+        warnings = validate_build(docs)
+        for warning in warnings:
+            # Only hard-block on critical errors
+            if "KHONG TUONG THICH" in warning or "CANH BAO QUAN TRONG" in warning:
+                raise ValueError(warning)

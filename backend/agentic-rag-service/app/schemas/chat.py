@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 class ChatOptions(BaseModel):
     max_iterations: Optional[int] = Field(default=None, alias="maxIterations")
-    enable_web_fallback: bool = Field(default=True, alias="enableWebFallback")
+    enable_web_fallback: bool = Field(default=False, alias="enableWebFallback")
 
 
 class ChatRequest(BaseModel):
@@ -30,6 +30,13 @@ class ProductSuggestion(BaseModel):
     image: Optional[str] = None
     url: Optional[str] = None
     reason: Optional[str] = None
+    ram_type: Optional[Any] = Field(default=None, alias="ramType")
+    socket: Optional[str] = None
+    chipset: Optional[str] = None
+    vram_gb: Optional[int] = Field(default=None, alias="vramGb")
+    capacity_gb: Optional[int] = Field(default=None, alias="capacityGb")
+    wattage_w: Optional[int] = Field(default=None, alias="wattageW")
+    efficiency: Optional[str] = None
 
 
 class Citation(BaseModel):
@@ -52,11 +59,26 @@ class ChatTrace(BaseModel):
     actions: List[AgentActionTrace] = Field(default_factory=list)
 
 
+class ChatContext(BaseModel):
+    budget: Optional[str] = None
+    purpose: Optional[str] = None
+    brand: Optional[str] = None
+    budget_exact: Optional[int] = Field(default=None, alias="budgetExact")
+
+
 class ChatResponse(BaseModel):
     answer: str
     confidence: float = 0.0
     products: List[ProductSuggestion] = Field(default_factory=list)
+    primary_build: List[ProductSuggestion] = Field(default_factory=list, alias="primaryBuild")
+    alternatives_by_slot: Dict[str, List[ProductSuggestion]] = Field(default_factory=dict, alias="alternativesBySlot")
+    estimated_build_total: Optional[int] = Field(default=None, alias="estimatedBuildTotal")
+    budget_status: Optional[Literal["within_budget", "near_budget", "over_budget", "under_budget"]] = Field(
+        default=None,
+        alias="budgetStatus",
+    )
     citations: List[Citation] = Field(default_factory=list)
+    context_update: Optional[ChatContext] = Field(default=None, alias="contextUpdate")
     trace: ChatTrace
 
 

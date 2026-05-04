@@ -1,0 +1,100 @@
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 586, in __try_eureka_server_in_zone
+    await self.__try_eureka_servers_in_list(
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 643, in __try_eureka_servers_in_list
+    raise EurekaServerConnectionException(
+py_eureka_client.eureka_client.EurekaServerConnectionException: <urlopen error All eureka servers in zone[default] are down!>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 710, in register
+    await self.__connect_to_eureka_server(do_register)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 651, in __connect_to_eureka_server
+    await self.__try_all_eureka_servers(fun)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 618, in __try_all_eureka_servers
+    await self.__try_eureka_server_not_in_zone(fun)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 598, in __try_eureka_server_not_in_zone
+    raise EurekaServerConnectionException(
+py_eureka_client.eureka_client.EurekaServerConnectionException: <urlopen error All eureka servers in all zone are down!>
+[2026-05-02 14:47:17]-[HeartbeatThread]-[eureka_client:633] WARNING: Eureka server [http://eureka-service:8761/eureka] is down, use next url to try.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/urllib/request.py", line 1348, in do_open
+    h.request(req.get_method(), req.selector, req.data, headers,
+  File "/usr/local/lib/python3.11/http/client.py", line 1323, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/local/lib/python3.11/http/client.py", line 1369, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/local/lib/python3.11/http/client.py", line 1318, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/local/lib/python3.11/http/client.py", line 1078, in _send_output
+    self.send(msg)
+  File "/usr/local/lib/python3.11/http/client.py", line 1016, in send
+    self.connect()
+  File "/usr/local/lib/python3.11/http/client.py", line 982, in connect
+    self.sock = self._create_connection(
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/socket.py", line 839, in create_connection
+    for res in getaddrinfo(host, port, 0, SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/socket.py", line 974, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -2] Name or service not known
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 631, in __try_eureka_servers_in_list
+    await fun(url)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 797, in do_pull
+    self.__applications = await get_applications(url, self.__remote_regions)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_basic.py", line 353, in get_applications
+    res = await _get_applications_(f"{_format_url(eureka_server)}apps/", regions)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_basic.py", line 370, in _get_applications_
+    res = await http_client.http_client.urlopen(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/http_client.py", line 144, in urlopen
+    res = urllib.request.urlopen(req, data=data, timeout=timeout)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 519, in open
+    response = self._open(req, data)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 536, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 1377, in http_open
+    return self.do_open(http.client.HTTPConnection, req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/urllib/request.py", line 1351, in do_open
+    raise URLError(err)
+urllib.error.URLError: <urlopen error [Errno -2] Name or service not known>
+[2026-05-02 14:47:17]-[HeartbeatThread]-[eureka_client:802] WARNING: pull full registry from eureka server error!
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 616, in __try_all_eureka_servers
+    await self.__try_eureka_server_in_zone(fun)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 586, in __try_eureka_server_in_zone
+    await self.__try_eureka_servers_in_list(
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 643, in __try_eureka_servers_in_list
+    raise EurekaServerConnectionException(
+py_eureka_client.eureka_client.EurekaServerConnectionException: <urlopen error All eureka servers in zone[default] are down!>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 800, in __pull_full_registry
+    await self.__connect_to_eureka_server(do_pull)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 653, in __connect_to_eureka_server
+    await self.__try_all_eureka_servers(fun)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 618, in __try_all_eureka_servers
+    await self.__try_eureka_server_not_in_zone(fun)
+  File "/usr/local/lib/python3.11/site-packages/py_eureka_client/eureka_client.py", line 598, in __try_eureka_server_not_in_zone
+    raise EurekaServerConnectionException(
+py_eureka_client.eureka_client.EurekaServerConnectionException: <urlopen error All eureka servers in all zone are down!>

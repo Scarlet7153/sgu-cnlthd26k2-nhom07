@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     litellm_api_key: str = Field(default="", alias="LITELLM_API_KEY")
     litellm_base_url: str = Field(default="", alias="LITELLM_BASE_URL")
     litellm_temperature: float = Field(default=0.2, alias="LITELLM_TEMPERATURE")
+    litellm_timeout_seconds: int = Field(default=75, alias="LITELLM_TIMEOUT_SECONDS")
+    litellm_max_tokens: int = Field(default=600, alias="LITELLM_MAX_TOKENS")
 
     mongodb_uri: str = Field(default="", alias="MONGODB_URI")
     mongodb_product_database: str = Field(default="product_db", alias="MONGODB_PRODUCT_DATABASE")
@@ -42,7 +44,7 @@ class Settings(BaseSettings):
 
     web_search_max_results: int = Field(default=5, alias="WEB_SEARCH_MAX_RESULTS")
     required_build_slots: str = Field(
-        default="CPU,MAINBOARD,RAM,GPU,SSD,PSU,CASE,COOLER",
+        default="CPU,MAINBOARD,RAM,SSD,PSU,CASE,COOLER",
         alias="REQUIRED_BUILD_SLOTS",
     )
 

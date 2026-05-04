@@ -18,10 +18,10 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
       '/advisor-api': {
-        target: process.env.VITE_ADVISOR_API_TARGET || 'http://localhost:8090',
+        target: process.env.VITE_API_BASE_URL || 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path.replace(/^\/advisor-api/, '/api'),
+        rewrite: (path) => path.replace(/^\/advisor-api/, '/api/advisor'),
       },
     },
   },

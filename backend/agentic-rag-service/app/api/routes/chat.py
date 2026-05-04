@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+from app.api.auth import require_auth
 from app.schemas.chat import (
     ChatContextUpdateRequest,
     ChatContextUpdateResponse,
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+def chat(payload: ChatRequest, request: Request, _=Depends(require_auth)) -> ChatResponse:
     orchestrator = request.app.state.container.orchestrator
     chat_history_service = request.app.state.container.chat_history_service
 
@@ -38,7 +39,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 
 
 @router.post("/chat/context", response_model=ChatContextUpdateResponse)
-def update_chat_context(payload: ChatContextUpdateRequest, request: Request) -> ChatContextUpdateResponse:
+def update_chat_context(payload: ChatContextUpdateRequest, request: Request, _=Depends(require_auth)) -> ChatContextUpdateResponse:
     chat_history_service = request.app.state.container.chat_history_service
     chat_history_service.update_context(
         session_id=payload.session_id,

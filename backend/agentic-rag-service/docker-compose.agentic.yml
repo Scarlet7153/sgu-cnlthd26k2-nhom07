@@ -6,3 +6,14 @@ services:
       - "8090:8090"
     env_file:
       - .env
+    environment:
+      - EUREKA_SERVER=http://eureka-service:8761/eureka/
+    volumes:
+      - ./app:/app/app
+    networks:
+      - backend-net
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090", "--reload"]
+
+networks:
+  backend-net:
+    external: true

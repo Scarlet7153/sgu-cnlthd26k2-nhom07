@@ -19,6 +19,18 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(build_sessions_router)
 
+    @app.on_event("startup")
+    async def startup_event():
+        try:
+            import py_eureka_client.eureka_client as eureka_client
+            await eureka_client.init_async(
+                eureka_server=settings.eureka_server,
+                app_name=settings.eureka_app_name,
+                instance_port=settings.app_port
+            )
+        except Exception as e:
+            print(f"Failed to register with Eureka: {e}")
+
     return app
 
 

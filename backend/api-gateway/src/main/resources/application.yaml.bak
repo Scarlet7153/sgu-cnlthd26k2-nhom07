@@ -67,14 +67,6 @@ spring:
           filters:
             - RewritePath=/api/advisor/(?<segment>.*), /api/$\{segment}
 
-        # Agentic RAG Service (AI Advisor) - alternative path for frontend
-        - id: agentic-rag-service-alt
-          uri: http://agentic-rag-service:8090
-          predicates:
-            - Path=/advisor-api/**
-          filters:
-            - RewritePath=/advisor-api/(?<segment>.*), /api/$\{segment}
-
 eureka:
   client:
     service-url:

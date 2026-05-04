@@ -15,11 +15,15 @@ class LLMGateway:
         api_key: str = "",
         base_url: str = "",
         temperature: float = 0.2,
+        timeout_seconds: int = 75,
+        max_tokens: int = 600,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
         self.temperature = temperature
+        self.timeout_seconds = timeout_seconds
+        self.max_tokens = max_tokens
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         if self.model.startswith("ollama/"):
@@ -47,6 +51,8 @@ class LLMGateway:
                 model=self.model,
                 api_key=self.api_key,
                 temperature=self.temperature,
+                timeout=self.timeout_seconds,
+                max_tokens=self.max_tokens,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -74,7 +80,7 @@ class LLMGateway:
             "options": {"temperature": self.temperature},
         }
 
-        response = httpx.post(endpoint, headers=headers, json=payload, timeout=240)
+        response = httpx.post(endpoint, headers=headers, json=payload, timeout=self.timeout_seconds)
         response.raise_for_status()
         data = response.json()
         result = data.get("response")

@@ -11,6 +11,7 @@ class BuildComponentPayload(BaseModel):
     quantity: int = 1
     image: Optional[str] = None
     url: Optional[str] = None
+    ram_type: Optional[str] = Field(default=None, alias="ramType")
 
 
 class BuildComponentResponse(BaseModel):
@@ -22,6 +23,7 @@ class BuildComponentResponse(BaseModel):
     quantity: int
     image: Optional[str] = None
     url: Optional[str] = None
+    ram_type: Optional[str] = Field(default=None, alias="ramType")
     selected_at: str = Field(alias="selectedAt")
 
 
