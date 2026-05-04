@@ -18,6 +18,7 @@ public class CacheConfig {
     public static final String ACTIVE_CATEGORIES_CACHE = "activeCategories";
     public static final String CATEGORY_BY_CODE_CACHE = "categoryByCode";
     public static final String PRODUCT_BY_ID_CACHE = "productById";
+    public static final String PRODUCT_LIST_CACHE = "productList";
 
     @Bean
     public CacheManager cacheManager() {
@@ -45,6 +46,13 @@ public class CacheConfig {
         manager.registerCustomCache(PRODUCT_BY_ID_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(5, TimeUnit.MINUTES) // products update more often
                 .maximumSize(500)
+                .recordStats()
+                .build());
+
+        // Cache for paginated product list queries (high-traffic endpoints)
+        manager.registerCustomCache(PRODUCT_LIST_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(2, TimeUnit.MINUTES) // short TTL for listing freshness
+                .maximumSize(200) // ~200 unique page/category/sort combinations
                 .recordStats()
                 .build());
 

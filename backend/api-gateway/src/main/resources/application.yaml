@@ -45,13 +45,13 @@ spring:
         - id: product-service
           uri: lb://product-service
           predicates:
-            - Path=/api/products/**, /api/categories/**, /api/reviews/**
+            - Path=/api/products/**,/api/categories/**,/api/reviews/**
 
         # Order Service — orders, cart, coupons
         - id: order-service
           uri: lb://order-service
           predicates:
-            - Path=/api/orders/**, /api/cart/**, /api/coupons/**
+            - Path=/api/orders/**,/api/cart/**,/api/coupons/**
 
         # Payment Service
         - id: payment-service

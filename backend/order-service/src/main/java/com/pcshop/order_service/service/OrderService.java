@@ -38,6 +38,7 @@ public class OrderService {
     private final CartService cartService;
     private final OrderShippingAddressMapper shippingAddressMapper;
     private final MongoTemplate mongoTemplate;
+    private final WebSocketNotificationService webSocketNotificationService;
 
     public Order createOrder(String accountId, CreateOrderRequest request) {
         // Validate payment method
@@ -128,6 +129,15 @@ public class OrderService {
             cartService.clearCart(accountId);
         }
 
+        // Send WebSocket notification for new order
+        webSocketNotificationService.broadcastNewOrderNotification(
+                order.getId(),
+                accountId,
+                "New Customer", // TODO: Get customer name from user-service
+                order.getTotal(),
+                order.getPaymentMethod()
+        );
+
         log.info("Order created: {} for account: {}", order.getId(), accountId);
         return order;
     }
@@ -151,13 +161,14 @@ public class OrderService {
 
     public Order updateOrderStatus(String orderId, UpdateOrderStatusRequest request, String changedBy) {
         Order order = getOrderById(orderId);
+        String oldStatus = order.getStatus();
 
         if (!OrderConstants.VALID_STATUSES.contains(request.getStatus())) {
             throw new BadRequestException(OrderConstants.ERROR_INVALID_STATUS + OrderConstants.VALID_STATUSES);
         }
 
-        if (OrderConstants.FINAL_STATUSES.contains(order.getStatus())) {
-            throw new BadRequestException(OrderConstants.ERROR_CANNOT_CANCEL_ORDER + order.getStatus());
+        if (OrderConstants.FINAL_STATUSES.contains(oldStatus)) {
+            throw new BadRequestException(OrderConstants.ERROR_CANNOT_CANCEL_ORDER + oldStatus);
         }
 
         order.setStatus(request.getStatus());
@@ -179,7 +190,17 @@ public class OrderService {
                 .build());
 
         order = orderRepository.save(order);
-        log.info("Order {} status updated to {}", orderId, request.getStatus());
+
+        // Send WebSocket notification for status update
+        webSocketNotificationService.sendOrderStatusUpdate(
+                order.getAccountId(),
+                orderId,
+                oldStatus,
+                request.getStatus(),
+                note
+        );
+
+        log.info("Order {} status updated from {} to {}", orderId, oldStatus, request.getStatus());
         return order;
     }
 
@@ -212,6 +233,7 @@ public class OrderService {
 
     public Order updatePaymentStatus(String orderId, String paymentStatus, String changedBy) {
         Order order = getOrderById(orderId);
+        String oldPaymentStatus = order.getPaymentStatus();
 
         if (!OrderConstants.VALID_PAYMENT_STATUSES.contains(paymentStatus)) {
             throw new BadRequestException(OrderConstants.ERROR_INVALID_PAYMENT_STATUS);
@@ -233,7 +255,18 @@ public class OrderService {
                 .build());
 
         order = orderRepository.save(order);
-        log.info("Order {} payment status updated to {}", orderId, paymentStatus);
+
+        // Send WebSocket notification for payment status update
+        webSocketNotificationService.sendPaymentStatusUpdate(
+                order.getAccountId(),
+                orderId,
+                paymentStatus,
+                order.getPaymentMethod(),
+                order.getTotal(),
+                paymentNote
+        );
+
+        log.info("Order {} payment status updated from {} to {}", orderId, oldPaymentStatus, paymentStatus);
         return order;
     }
 

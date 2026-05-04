@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>PCShop - Conceptual Model</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #fff; font-family: 'Segoe UI', Arial, sans-serif; }
+  svg { display: block; margin: 20px auto; }
+  text { font-family: 'Segoe UI', Arial, sans-serif; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1200 900" width="1200" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <style>
+      .ctx-title { font-size: 15px; font-weight: bold; fill: #333; }
+      .entity { font-size: 12px; font-weight: 600; fill: #333; text-anchor: middle; }
+      .actor { font-size: 11px; font-weight: 600; fill: #333; text-anchor: middle; }
+      .rel-label { font-size: 10px; fill: #555; text-anchor: middle; }
+      .card { font-size: 10px; fill: #333; font-weight: bold; }
+      .action-text { font-size: 9.5px; fill: #444; text-anchor: middle; }
+      .note-text { font-size: 9px; fill: #666; font-style: italic; }
+    </style>
+  </defs>
+
+  <!-- ============ PRODUCT CATALOG (GREEN) ============ -->
+  <rect x="20" y="20" width="380" height="280" rx="8" fill="#d5f5d5" stroke="#4caf50" stroke-width="2"/>
+  <text x="210" y="45" class="ctx-title">Product Catalog</text>
+  
+  <!-- Product -->
+  <rect x="180" y="65" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="230" y="86" class="entity">Product</text>
+  <!-- Category -->
+  <rect x="50" y="130" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="100" y="151" class="entity">Category</text>
+  <!-- Subcategory -->
+  <rect x="50" y="200" width="110" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="105" y="221" class="entity">Subcategory</text>
+  <!-- Specs (dynamic) -->
+  <rect x="200" y="130" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="250" y="151" class="entity">Specs (K-V)</text>
+  
+  <!-- Buyer actor -->
+  <rect x="50" y="65" width="80" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="90" y="83" class="actor">Buyer</text>
+  <text x="90" y="60" class="action-text">filter, search</text>
+  <!-- Admin actor -->
+  <rect x="300" y="130" width="85" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="342" y="148" class="actor">Admin</text>
+  <text x="342" y="174" class="action-text">+ CRUD</text>
+  
+  <!-- Product → Category -->
+  <line x1="180" y1="90" x2="150" y2="135" stroke="#555" stroke-width="1.2"/>
+  <text x="155" y="108" class="card">1..*</text>
+  <!-- Category → Subcategory -->
+  <line x1="100" y1="162" x2="100" y2="200" stroke="#555" stroke-width="1.2"/>
+  <text x="115" y="185" class="card">0..*</text>
+  <!-- Product → Specs -->
+  <line x1="250" y1="97" x2="250" y2="130" stroke="#555" stroke-width="1.2"/>
+  <text x="265" y="118" class="card">1..1</text>
+  <!-- Buyer → Product -->
+  <line x1="130" y1="79" x2="180" y2="79" stroke="#555" stroke-width="1"/>
+  <!-- Admin → Product -->
+  <line x1="300" y1="144" x2="280" y2="97" stroke="#555" stroke-width="1"/>
+
+  <!-- Embedding / Vector -->
+  <rect x="200" y="200" width="110" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="255" y="221" class="entity">Embedding</text>
+  <text x="255" y="248" class="action-text">vector 768-dim</text>
+  <line x1="250" y1="162" x2="255" y2="200" stroke="#555" stroke-width="1" stroke-dasharray="4"/>
+
+  <!-- ============ SHOPPING CART (BLUE) ============ -->
+  <rect x="430" y="20" width="340" height="220" rx="8" fill="#dbeafe" stroke="#2196f3" stroke-width="2"/>
+  <text x="600" y="45" class="ctx-title">Shopping Cart</text>
+
+  <!-- Cart -->
+  <rect x="600" y="65" width="90" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="645" y="86" class="entity">Cart</text>
+  <!-- CartItem -->
+  <rect x="600" y="130" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="650" y="151" class="entity">CartItem</text>
+  <!-- Product ref -->
+  <rect x="460" y="130" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="510" y="151" class="entity">Product</text>
+  <!-- Buyer -->
+  <rect x="460" y="65" width="80" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="500" y="83" class="actor">Buyer</text>
+  <text x="500" y="60" class="action-text">add / remove</text>
+
+  <!-- Cart → CartItem -->
+  <line x1="645" y1="97" x2="650" y2="130" stroke="#555" stroke-width="1.2"/>
+  <text x="665" y="118" class="card">0..*</text>
+  <!-- CartItem → Product -->
+  <line x1="600" y1="146" x2="560" y2="146" stroke="#555" stroke-width="1.2"/>
+  <text x="580" y="140" class="card">1..1</text>
+  <!-- Buyer → Cart -->
+  <line x1="540" y1="79" x2="600" y2="79" stroke="#555" stroke-width="1" marker-end="url(#arrow)"/>
+  <text x="570" y="73" class="action-text">actions</text>
+  
+  <!-- Redis note -->
+  <text x="610" y="195" class="note-text">Redis (TTL 7 days)</text>
+  <text x="610" y="210" class="note-text">key: cart:{accountId}</text>
+
+  <!-- ============ ACCESS CONTROL (PINK) ============ -->
+  <rect x="800" y="20" width="380" height="280" rx="8" fill="#fce4ec" stroke="#e91e63" stroke-width="2"/>
+  <text x="990" y="45" class="ctx-title">Access Control</text>
+
+  <!-- Account -->
+  <rect x="870" y="70" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="920" y="91" class="entity">Account</text>
+  <!-- Role -->
+  <rect x="1020" y="70" width="80" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="1060" y="91" class="entity">Role</text>
+  <!-- OTP -->
+  <rect x="830" y="145" width="80" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="870" y="166" class="entity">OTP</text>
+  <!-- RefreshToken -->
+  <rect x="940" y="145" width="120" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="1000" y="166" class="entity">RefreshToken</text>
+  <!-- AddressDetails -->
+  <rect x="830" y="215" width="130" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="895" y="236" class="entity">AddressDetails</text>
+
+  <!-- Account → Role -->
+  <line x1="970" y1="86" x2="1020" y2="86" stroke="#555" stroke-width="1.2"/>
+  <text x="995" y="80" class="card">1..1</text>
+  <text x="1060" y="118" class="action-text">USER | ADMIN</text>
+  <!-- Account → OTP -->
+  <line x1="900" y1="102" x2="870" y2="145" stroke="#555" stroke-width="1.2"/>
+  <text x="875" y="128" class="card">0..*</text>
+  <!-- Account → RefreshToken -->
+  <line x1="940" y1="102" x2="1000" y2="145" stroke="#555" stroke-width="1.2"/>
+  <text x="978" y="128" class="card">0..*</text>
+  <!-- Account → Address -->
+  <line x1="910" y1="102" x2="895" y2="215" stroke="#555" stroke-width="1" stroke-dasharray="4"/>
+  <text x="890" y="195" class="card">0..1</text>
+
+  <!-- ============ ORDER MANAGEMENT (ORANGE) ============ -->
+  <rect x="20" y="330" width="440" height="270" rx="8" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
+  <text x="240" y="355" class="ctx-title">Order Management</text>
+
+  <!-- Order -->
+  <rect x="170" y="375" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="220" y="396" class="entity">Order</text>
+  <!-- OrderItem -->
+  <rect x="50" y="445" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="100" y="466" class="entity">OrderItem</text>
+  <!-- ShippingAddress -->
+  <rect x="180" y="445" width="140" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="250" y="466" class="entity">ShippingAddress</text>
+  <!-- StatusHistory -->
+  <rect x="50" y="520" width="120" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="110" y="541" class="entity">StatusHistory</text>
+
+  <!-- Buyer actor -->
+  <rect x="40" y="375" width="80" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="80" y="393" class="actor">Buyer</text>
+  <text x="80" y="365" class="action-text">create, cancel</text>
+  <!-- Admin actor -->
+  <rect x="310" y="375" width="85" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="352" y="393" class="actor">Admin</text>
+  <text x="352" y="365" class="action-text">update status</text>
+
+  <!-- Order → OrderItem -->
+  <line x1="195" y1="407" x2="120" y2="445" stroke="#555" stroke-width="1.2"/>
+  <text x="145" y="430" class="card">1..*</text>
+  <!-- Order → ShippingAddress -->
+  <line x1="240" y1="407" x2="250" y2="445" stroke="#555" stroke-width="1.2"/>
+  <text x="260" y="430" class="card">1..1</text>
+  <!-- Order → StatusHistory -->
+  <line x1="190" y1="407" x2="110" y2="520" stroke="#555" stroke-width="1.2"/>
+  <text x="135" y="500" class="card">0..*</text>
+  <!-- Buyer → Order -->
+  <line x1="120" y1="389" x2="170" y2="389" stroke="#555" stroke-width="1"/>
+  <!-- Admin → Order -->
+  <line x1="310" y1="389" x2="270" y2="391" stroke="#555" stroke-width="1"/>
+
+  <!-- Status flow -->
+  <text x="310" y="460" class="note-text">pending → confirmed</text>
+  <text x="310" y="475" class="note-text">→ shipping → delivered</text>
+  <text x="310" y="490" class="note-text">| cancelled</text>
+
+  <!-- WebSocket notification -->
+  <rect x="310" y="520" width="130" height="32" rx="3" fill="#e8f5e9" stroke="#4caf50" stroke-width="1.5"/>
+  <text x="375" y="541" class="entity">WebSocket</text>
+  <text x="375" y="565" class="action-text">real-time notify</text>
+  <line x1="240" y1="407" x2="375" y2="520" stroke="#4caf50" stroke-width="1" stroke-dasharray="4"/>
+
+  <!-- ============ PAYMENT PROCESS (PURPLE) ============ -->
+  <rect x="20" y="630" width="440" height="250" rx="8" fill="#ede7f6" stroke="#7e57c2" stroke-width="2"/>
+  <text x="240" y="655" class="ctx-title">Payment Process</text>
+
+  <!-- Payment -->
+  <rect x="170" y="680" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="220" y="701" class="entity">Payment</text>
+  <!-- PaymentMethod -->
+  <rect x="40" y="680" width="110" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="95" y="701" class="entity">PaymentMethod</text>
+  <!-- PaymentStatus -->
+  <rect x="40" y="750" width="115" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="97" y="771" class="entity">PaymentStatus</text>
+  <!-- PaymentLog -->
+  <rect x="190" y="750" width="110" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="245" y="771" class="entity">PaymentLog</text>
+
+  <!-- Buyer -->
+  <rect x="310" y="680" width="80" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="350" y="698" class="actor">Buyer</text>
+  <!-- Order ref -->
+  <rect x="310" y="750" width="100" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="360" y="771" class="entity">Order</text>
+
+  <!-- Payment → PaymentMethod -->
+  <line x1="170" y1="696" x2="150" y2="696" stroke="#555" stroke-width="1.2"/>
+  <text x="160" y="688" class="card">1..1</text>
+  <!-- Payment → PaymentStatus -->
+  <line x1="190" y1="712" x2="110" y2="750" stroke="#555" stroke-width="1.2"/>
+  <text x="140" y="735" class="card">1..1</text>
+  <!-- Payment → PaymentLog -->
+  <line x1="230" y1="712" x2="245" y2="750" stroke="#555" stroke-width="1.2"/>
+  <text x="250" y="735" class="card">0..*</text>
+  <!-- Payment → Order -->
+  <line x1="270" y1="700" x2="310" y2="766" stroke="#555" stroke-width="1.2"/>
+  <text x="295" y="730" class="card">1..1</text>
+  <!-- Buyer → Payment -->
+  <line x1="310" y1="694" x2="270" y2="694" stroke="#555" stroke-width="1"/>
+  <text x="290" y="675" class="action-text">0..*</text>
+
+  <!-- Method/Status labels -->
+  <text x="95" y="725" class="action-text">COD | MOMO</text>
+  <text x="97" y="795" class="action-text">pending | success</text>
+  <text x="97" y="808" class="action-text">failed | refunded</text>
+
+  <!-- ============ AI ADVISOR (YELLOW) ============ -->
+  <rect x="500" y="460" width="380" height="290" rx="8" fill="#fffde7" stroke="#fbc02d" stroke-width="2"/>
+  <text x="690" y="485" class="ctx-title">AI Advisor (Agentic RAG)</text>
+
+  <!-- ChatSession -->
+  <rect x="530" y="505" width="110" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="585" y="526" class="entity">ChatSession</text>
+  <!-- BuildSession -->
+  <rect x="530" y="575" width="120" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="590" y="596" class="entity">BuildSession</text>
+  <!-- ProductSuggestion -->
+  <rect x="690" y="505" width="150" height="32" rx="3" fill="#fff9c4" stroke="#999" stroke-width="1.5"/>
+  <text x="765" y="526" class="entity">ProductSuggestion</text>
+  <!-- Orchestrator -->
+  <rect x="690" y="575" width="140" height="32" rx="3" fill="#e8f5e9" stroke="#4caf50" stroke-width="1.5"/>
+  <text x="760" y="596" class="entity">Orchestrator</text>
+  <text x="760" y="620" class="action-text">ReAct Loop</text>
+  <!-- DBRetrieval -->
+  <rect x="560" y="650" width="120" height="32" rx="3" fill="#e3f2fd" stroke="#2196f3" stroke-width="1.5"/>
+  <text x="620" y="671" class="entity">DB Retrieval</text>
+  <text x="620" y="695" class="action-text">Hybrid Search</text>
+  <!-- WebRetrieval -->
+  <rect x="720" y="650" width="120" height="32" rx="3" fill="#fce4ec" stroke="#e91e63" stroke-width="1.5"/>
+  <text x="780" y="671" class="entity">Web Retrieval</text>
+  <text x="780" y="695" class="action-text">Fallback</text>
+  <!-- LLM -->
+  <rect x="640" y="715" width="120" height="32" rx="3" fill="#f3e5f5" stroke="#9c27b0" stroke-width="1.5"/>
+  <text x="700" y="736" class="entity">LLM Gateway</text>
+
+  <!-- Buyer -->
+  <rect x="530" y="715" width="80" height="28" rx="3" fill="#fff9c4" stroke="#e0a000" stroke-width="1.5"/>
+  <text x="570" y="733" class="actor">Buyer</text>
+  <text x="570" y="710" class="action-text">chat, build PC</text>
+
+  <!-- ChatSession → ProductSuggestion -->
+  <line x1="640" y1="521" x2="690" y2="521" stroke="#555" stroke-width="1.2"/>
+  <text x="665" y="515" class="card">0..*</text>
+  <!-- Orchestrator → DB -->
+  <line x1="730" y1="607" x2="660" y2="650" stroke="#555" stroke-width="1.2"/>
+  <!-- Orchestrator → Web -->
+  <line x1="780" y1="607" x2="780" y2="650" stroke="#555" stroke-width="1.2"/>
+  <!-- Orchestrator → LLM -->
+  <line x1="760" y1="607" x2="700" y2="715" stroke="#555" stroke-width="1" stroke-dasharray="4"/>
+  <!-- Buyer → ChatSession -->
+  <line x1="570" y1="715" x2="585" y2="537" stroke="#555" stroke-width="1"/>
+
+  <!-- ============ "is a" CONNECTIONS TO ACCESS CONTROL ============ -->
+  <!-- Product Catalog → Access Control -->
+  <line x1="400" y1="160" x2="800" y2="86" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="590" y="110" class="rel-label">is a</text>
+  
+  <!-- Shopping Cart → Access Control -->
+  <line x1="770" y1="130" x2="870" y2="86" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="810" y="100" class="rel-label">is a</text>
+
+  <!-- Order → Access Control -->
+  <line x1="460" y1="391" x2="870" y2="102" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="700" y="230" class="rel-label">is a</text>
+
+  <!-- Payment → Access Control -->
+  <line x1="460" y1="694" x2="880" y2="102" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="710" y="385" class="rel-label">is a</text>
+
+  <!-- AI Advisor → Access Control -->
+  <line x1="800" y1="460" x2="950" y2="300" stroke="#888" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="895" y="380" class="rel-label">is a</text>
+
+  <!-- Title -->
+  <text x="600" y="885" text-anchor="middle" style="font-size:13px;fill:#888;font-style:italic;">
+    Hình 3.x: Conceptual Model — PCShop Microservices E-commerce System
+  </text>
+</svg>
+</body>
+</html>

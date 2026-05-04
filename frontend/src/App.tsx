@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { CartProvider } from "@/context/CartContext";
+import { WishlistProvider } from "@/context/WishlistContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { GuestRoute } from "@/components/GuestRoute";
@@ -14,6 +15,7 @@ import axiosClient, { unwrapApiData } from "@/lib/axiosClient";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import LoadingSkeleton from "@/components/shared/LoadingSkeleton";
+import { WebSocketNotifications } from "@/components/WebSocketNotifications";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const ProductListPage = lazy(() => import("./pages/ProductListPage"));
@@ -37,6 +39,7 @@ const PaymentResultPage = lazy(() => import("./pages/PaymentResultPage"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const ContactPage = lazy(() => import("./pages/ContactPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const WishlistPage = lazy(() => import("./pages/WishlistPage"));
 
 // Admin pages
 const AdminLayout = lazy(() => import("./components/layout/AdminLayout"));
@@ -114,6 +117,7 @@ function AppRoutes() {
             <Route path="/payment/result" element={<ProtectedRoute><PaymentResultPage /></ProtectedRoute>} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />
+            <Route path="/wishlist" element={<ProtectedRoute><WishlistPage /></ProtectedRoute>} />
 
             {/* Admin Routes */}
             <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -137,6 +141,7 @@ function AppRoutes() {
 function AppContent() {
   return (
     <BrowserRouter>
+      <WebSocketNotifications />
       <AppRoutes />
     </BrowserRouter>
   );
@@ -146,11 +151,13 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <CartProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <AppContent />
-        </TooltipProvider>
+        <WishlistProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <AppContent />
+          </TooltipProvider>
+        </WishlistProvider>
       </CartProvider>
     </AuthProvider>
   </QueryClientProvider>

@@ -5,6 +5,8 @@ import com.pcshop.auth_service.dto.request.RefreshTokenRequest;
 import com.pcshop.auth_service.dto.request.RegisterRequest;
 import com.pcshop.auth_service.dto.request.VerifyOtpRequest;
 import com.pcshop.auth_service.dto.request.ResendOtpRequest;
+import com.pcshop.auth_service.dto.request.ForgotPasswordRequest;
+import com.pcshop.auth_service.dto.request.ResetPasswordRequest;
 import com.pcshop.auth_service.dto.response.ApiResponse;
 import com.pcshop.auth_service.dto.response.AuthResponse;
 import com.pcshop.auth_service.dto.response.RegisterResponse;
@@ -59,5 +61,17 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> logout(@AuthenticationPrincipal UserPrincipal principal) {
         authService.logout(principal.getId());
         return ResponseEntity.ok(ApiResponse.ok("Logout successful", null));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<RegisterResponse>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        RegisterResponse response = authService.forgotPassword(request);
+        return ResponseEntity.ok(ApiResponse.ok("Password reset OTP sent", response));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(ApiResponse.ok("Password reset successful", null));
     }
 }

@@ -33,6 +33,12 @@ export interface Order {
   total: number;
   note?: string;
   cancelReason?: string;
+  historyStatus?: Array<{
+    status: string;
+    note?: string;
+    changeBy?: string;
+    createdAt: string;
+  }>;
   createdAt: string;
   updatedAt?: string;
 }

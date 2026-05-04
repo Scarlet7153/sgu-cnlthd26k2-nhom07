@@ -1,0 +1,89 @@
+# Test Configuration for Order Service
+# Profile: test
+# Uses TestContainers MongoDB for integration tests
+
+spring:
+  application:
+    name: order-service-test
+
+  # MongoDB Configuration
+  # Note: URI is overridden dynamically by TestContainers in integration tests
+  data:
+    mongodb:
+      auto-index-creation: true
+
+  # Redis Configuration - Disabled for tests (using mock)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+  # Disable Eureka for tests
+  cloud:
+    discovery:
+      enabled: false
+    openfeign:
+      enabled: false
+    circuitbreaker:
+      enabled: false
+
+  # Security - Disable for tests (tests handle auth via headers)
+  security:
+    enabled: false
+
+  # WebSocket - Disable for tests
+  websocket:
+    enabled: false
+
+# Logging Configuration
+logging:
+  level:
+    root: WARN
+    com.pcshop.order_service: DEBUG
+    org.springframework.test: INFO
+    org.testcontainers: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Test-specific properties
+order:
+  service:
+    test:
+      enabled: true
+
+# Disable unnecessary auto-configurations for faster tests
+management:
+  endpoints:
+    enabled-by-default: false
+  endpoint:
+    health:
+      enabled: false
+
+# Jackson Configuration for tests
+jackson:
+  serialization:
+    write-dates-as-timestamps: false
+    fail-on-empty-beans: false
+  deserialization:
+    fail-on-unknown-properties: false
+
+# Server Configuration
+server:
+  port: 0 # Random port for tests
+
+---
+# Alternative: Embedded MongoDB configuration (for lightweight unit tests)
+spring:
+  config:
+    activate:
+      on-profile: embedded-mongo
+  data:
+    mongodb:
+      database: order_service_test
+      port: 0 # Random port
+
+# Embedded MongoDB specific properties
+de:
+  flapdoodle:
+    mongodb:
+      embedded:
+        version: 7.0.2

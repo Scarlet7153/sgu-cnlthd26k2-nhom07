@@ -23,6 +23,12 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/advisor-api/, '/api/advisor'),
       },
+      '/ws': {
+        target: process.env.VITE_WS_URL || 'http://localhost:8083',
+        changeOrigin: true,
+        secure: false,
+        ws: true, // Enable WebSocket proxy
+      },
     },
   },
   plugins: [react()],
@@ -30,5 +36,12 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  define: {
+    // Polyfill for SockJS (browser doesn't have 'global')
+    global: 'globalThis',
+  },
+  optimizeDeps: {
+    include: ['sockjs-client'],
   },
 });

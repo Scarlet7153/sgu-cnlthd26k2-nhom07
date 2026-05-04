@@ -6,6 +6,8 @@ import com.pcshop.auth_service.dto.request.RefreshTokenRequest;
 import com.pcshop.auth_service.dto.request.RegisterRequest;
 import com.pcshop.auth_service.dto.request.VerifyOtpRequest;
 import com.pcshop.auth_service.dto.request.ResendOtpRequest;
+import com.pcshop.auth_service.dto.request.ForgotPasswordRequest;
+import com.pcshop.auth_service.dto.request.ResetPasswordRequest;
 import com.pcshop.auth_service.dto.response.AuthResponse;
 import com.pcshop.auth_service.dto.response.UserResponse;
 import com.pcshop.auth_service.dto.response.RegisterResponse;
@@ -190,6 +192,69 @@ public class AuthService {
                 .email(normalizedEmail)
                 .otpExpiresIn(AuthConstants.OTP_EXPIRY_MINUTES * 60)
                 .build();
+    }
+
+    public RegisterResponse forgotPassword(ForgotPasswordRequest request) {
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+
+        // Find account — must exist and be active
+        Account account = accountRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_ACCOUNT_NOT_FOUND));
+
+        if (!AuthConstants.STATUS_ACTIVE.equals(account.getStatus())) {
+            throw new BadRequestException("Account is not active. Please verify your account first.");
+        }
+
+        generateAndSendOtp(normalizedEmail);
+
+        log.info("Password reset OTP sent to: {}", normalizedEmail);
+        return RegisterResponse.builder()
+                .message("Mã OTP đặt lại mật khẩu đã được gửi đến email của bạn")
+                .email(normalizedEmail)
+                .otpExpiresIn(AuthConstants.OTP_EXPIRY_MINUTES * 60)
+                .build();
+    }
+
+    public void resetPassword(ResetPasswordRequest request) {
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+
+        // Validate OTP code format
+        if (request.getCode() == null || !request.getCode().matches("\\d{" + AuthConstants.OTP_LENGTH + "}")) {
+            throw new BadRequestException(AuthConstants.ERROR_INVALID_OTP_FORMAT);
+        }
+
+        // Find and validate OTP
+        Otp otp = otpRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_OTP_EXPIRED));
+
+        if (otp.isExpired()) {
+            otpRepository.delete(otp);
+            throw new BadRequestException(AuthConstants.ERROR_OTP_EXPIRED);
+        }
+
+        if (!otp.getCode().equals(request.getCode())) {
+            otp.setAttempts(otp.getAttempts() + 1);
+            otpRepository.save(otp);
+
+            if (otp.getAttempts() >= AuthConstants.MAX_OTP_ATTEMPTS) {
+                otpRepository.delete(otp);
+                throw new BadRequestException(AuthConstants.ERROR_TOO_MANY_ATTEMPTS);
+            }
+            throw new BadRequestException(AuthConstants.ERROR_INVALID_OTP);
+        }
+
+        // Find account and update password
+        Account account = accountRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> new BadRequestException(AuthConstants.ERROR_ACCOUNT_NOT_FOUND));
+
+        account.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        accountRepository.save(account);
+
+        // Clean up OTP and refresh tokens
+        otpRepository.delete(otp);
+        refreshTokenRepository.deleteByAccountId(account.getId());
+
+        log.info("Password reset successful for: {}", normalizedEmail);
     }
 
     private String generateOtpCode() {

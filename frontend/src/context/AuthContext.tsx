@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 
 import axiosClient, { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClient";
 
@@ -18,6 +19,7 @@ interface User {
   };
   avatar?: string;
   token?: string;
+  refreshToken?: string;
 }
 
 interface BackendAccount {
@@ -35,12 +37,14 @@ interface BackendAccount {
 interface LoginPayload {
   accessToken?: string;
   token?: string;
+  refreshToken?: string;
   account?: BackendAccount;
   user?: BackendAccount;
   data?: {
     account?: BackendAccount;
     user?: BackendAccount;
     accessToken?: string;
+    refreshToken?: string;
   };
 }
 
@@ -65,6 +69,9 @@ interface AuthContextValue {
   updateProfile: (data: Partial<Omit<User, "id" | "email">>) => void;
   verifyOtp: (email: string, otp: string) => Promise<{ error?: string }>;
   resendOtp: (email: string) => Promise<{ error?: string }>;
+  getAccessToken: () => string | null;
+  forgotPassword: (email: string) => Promise<{ error?: string }>;
+  resetPassword: (email: string, otp: string, newPassword: string) => Promise<{ error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -85,6 +92,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const [loading, setLoading] = useState(false);
 
+  // Listen for session-expired events from axios interceptor
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", { duration: 4000 });
+    };
+    window.addEventListener("auth:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("auth:session-expired", handleSessionExpired);
+  }, []);
+
   const signIn = useCallback(async (email: string, password: string): Promise<SignInResult> => {
     try {
       const raw: any = await axiosClient.post("/auth/login", { email, password });
@@ -93,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Backend trả về: { data: { accessToken, refreshToken, user: {...} } }
       // Hoặc: { accessToken, refreshToken, user: {...} }
       const accessToken = authData?.accessToken || authData?.data?.accessToken;
+      const refreshToken = authData?.refreshToken || authData?.data?.refreshToken;
       const userFromBackend = authData?.user || authData?.account || authData?.data?.user || authData?.data?.account;
 
       const loggedUser: User = {
@@ -101,7 +119,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: userFromBackend?.fullName || userFromBackend?.name || userFromBackend?.email,
         phone: userFromBackend?.phone,
         role: userFromBackend?.role || "USER",
-        token: accessToken || ""
+        token: accessToken || "",
+        refreshToken: refreshToken || "",
       };
 
       if (!loggedUser.id || !loggedUser.token) {
@@ -150,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authData = unwrapApiData<LoginPayload>(raw);
       
       const accessToken = authData?.accessToken || authData?.data?.accessToken;
+      const refreshToken = authData?.refreshToken || authData?.data?.refreshToken;
       const userFromBackend = authData?.user || authData?.account || authData?.data?.user || authData?.data?.account;
 
       const loggedUser: User = {
@@ -158,7 +178,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: userFromBackend?.fullName || userFromBackend?.name || userFromBackend?.email,
         phone: userFromBackend?.phone,
         role: userFromBackend?.role || "USER",
-        token: accessToken || ""
+        token: accessToken || "",
+        refreshToken: refreshToken || "",
       };
 
       if (loggedUser.id && loggedUser.token) {
@@ -183,6 +204,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const forgotPassword = useCallback(async (email: string) => {
+    try {
+      await axiosClient.post("/auth/forgot-password", { email });
+      return {};
+    } catch (err: unknown) {
+      console.error("Forgot password failed:", err);
+      return { error: getApiErrorMessage(err, "Không thể gửi mã OTP đặt lại mật khẩu") };
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string, otp: string, newPassword: string) => {
+    try {
+      await axiosClient.post("/auth/reset-password", { email, code: otp, newPassword });
+      return {};
+    } catch (err: unknown) {
+      console.error("Reset password failed:", err);
+      return { error: getApiErrorMessage(err, "Không thể đặt lại mật khẩu") };
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       await axiosClient.post("/auth/logout");
@@ -192,6 +233,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(null);
     localStorage.removeItem("auth-user");
+    
+    toast.success("Đăng xuất thành công", {
+      duration: 2000,
+    });
   }, []);
 
   const updateProfile = useCallback((data: Partial<Omit<User, "id" | "email">>) => {
@@ -205,9 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
+  const getAccessToken = useCallback(() => {
+    return user?.token || null;
+  }, [user]);
+
   const value = useMemo<AuthContextValue>(() => ({
-    user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp,
-  }), [user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp]);
+    user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp, getAccessToken,
+    forgotPassword, resetPassword,
+  }), [user, loading, signIn, signUp, signOut, updateProfile, verifyOtp, resendOtp, getAccessToken, forgotPassword, resetPassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -217,4 +267,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
-
