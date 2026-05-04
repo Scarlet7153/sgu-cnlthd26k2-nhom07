@@ -79,7 +79,7 @@ class PCBuildSessionService:
         }
 
         selected_components = [c for c in doc.get("selected_components", []) if c.get("slot") != slot]
-        self._validate_cpu_mainboard_compatibility(payload=payload, selected_components=selected_components)
+        self._validate_hardware_compatibility(payload=payload, selected_components=selected_components)
         selected_components.append(component)
         total_price = sum((c.get("price", 0) or 0) * (c.get("quantity", 1) or 1) for c in selected_components)
 
@@ -141,71 +141,39 @@ class PCBuildSessionService:
             "total_price": doc.get("total_price", 0) or 0,
         }
 
-    def _validate_cpu_mainboard_compatibility(
+    def _validate_hardware_compatibility(
         self,
         payload: BuildComponentPayload,
         selected_components: List[Dict[str, Any]],
     ) -> None:
-        slot = payload.slot.upper()
-        if slot not in {"CPU", "MAINBOARD"}:
-            return
-
-        counterpart_slot = "MAINBOARD" if slot == "CPU" else "CPU"
-        counterpart = next((item for item in selected_components if str(item.get("slot", "")).upper() == counterpart_slot), None)
-        if not counterpart:
-            return
-
         if self.mongo_search_service is None:
             return
 
-        product_ids = [payload.product_id, str(counterpart.get("product_id", ""))]
+        from app.services.compatibility_checker import validate_build
+
+        # Gather all product IDs to fetch from DB
+        product_ids = [payload.product_id]
+        for c in selected_components:
+            if c.get("product_id"):
+                product_ids.append(str(c.get("product_id")))
+
         docs = self.mongo_search_service.get_products_by_ids(product_ids)
         if not docs:
             return
 
-        socket_by_id = {
-            str(doc.get("_id", "")): self._extract_socket_from_raw(doc)
-            for doc in docs
-        }
+        # Inject _selected_slot into docs so validate_build knows what slot they belong to
+        for doc in docs:
+            doc_id = str(doc.get("_id", ""))
+            if doc_id == payload.product_id:
+                doc["_selected_slot"] = payload.slot
+            else:
+                for c in selected_components:
+                    if str(c.get("product_id", "")) == doc_id:
+                        doc["_selected_slot"] = c.get("slot")
+                        break
 
-        current_socket = socket_by_id.get(str(payload.product_id))
-        counterpart_socket = socket_by_id.get(str(counterpart.get("product_id", "")))
-
-        # If one side has missing socket metadata, keep soft behavior.
-        if not current_socket or not counterpart_socket:
-            return
-
-        if current_socket != counterpart_socket:
-            raise ValueError(
-                f"{slot} khong tuong thich voi {counterpart_slot} da chon (socket {current_socket} vs {counterpart_socket})."
-            )
-
-    @staticmethod
-    def _extract_socket_from_raw(raw: Dict[str, Any]) -> str | None:
-        candidates: List[str] = []
-        socket_value = raw.get("socket")
-        if isinstance(socket_value, str) and socket_value.strip():
-            candidates.append(socket_value)
-
-        specs = raw.get("specs_raw") or raw.get("specsRaw")
-        if isinstance(specs, dict):
-            for key in ("Socket", "socket", "SOCKET"):
-                value = specs.get(key)
-                if isinstance(value, str) and value.strip():
-                    candidates.append(value)
-
-        for value in candidates:
-            normalized = value.upper()
-            am_match = re.search(r"AM\d+", normalized)
-            if am_match:
-                return am_match.group(0)
-
-            lga_match = re.search(r"LGA\s*(\d{3,4})", normalized)
-            if lga_match:
-                return lga_match.group(1)
-
-            num_match = re.search(r"\b\d{4}\b", normalized)
-            if num_match:
-                return num_match.group(0)
-
-        return None
+        warnings = validate_build(docs)
+        for warning in warnings:
+            # Only hard-block on critical errors
+            if "KHONG TUONG THICH" in warning or "CANH BAO QUAN TRONG" in warning:
+                raise ValueError(warning)

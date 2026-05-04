@@ -22,6 +22,7 @@ def _to_build_session_response(doc: dict) -> BuildSessionResponse:
                 "quantity": c.get("quantity", 1),
                 "image": c.get("image"),
                 "url": c.get("url"),
+                "ramType": c.get("ram_type"),
                 "selectedAt": c.get("selected_at").isoformat() if c.get("selected_at") else "",
             }
         )

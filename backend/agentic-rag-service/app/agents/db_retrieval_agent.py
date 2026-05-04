@@ -19,12 +19,17 @@ class DBRetrievalAgent:
             budget_max = self._extract_budget_max(task.context)
             selected_brand = self._extract_selected_brand(task.context)
             preferred_slots = self._extract_preferred_slots(task.query)
+            
+            # Use the total budget as a hard limit at the DB level to filter out 
+            # items that are more expensive than the entire build.
+            effective_max_price = budget_max 
+
             vector = self.embedding_service.embed(retrieval_query)
             evidences = self.mongo_service.hybrid_search(
                 retrieval_query,
                 vector,
                 limit=task.max_results,
-                max_price=budget_max,
+                max_price=effective_max_price,
                 selected_brand=selected_brand,
                 preferred_slots=preferred_slots,
             )
@@ -69,8 +74,23 @@ class DBRetrievalAgent:
                 "RAM",
                 "SSD",
                 "PSU",
+                "GPU",
                 "gia tot",
             ])
+            
+            # Inject budget-aware hints - use query as fallback for budget extraction
+            budget_val = DBRetrievalAgent._extract_budget_max(context)
+            if not budget_val and query:
+                budget_val = DBRetrievalAgent._extract_budget_max({"budget": query})
+
+            if budget_val:
+                if budget_val < 12_000_000:
+                    extras.extend(["gia re", "tiet kiem", "p/p"])
+                elif budget_val < 25_000_000:
+                    extras.extend(["p/p", "hieu nang cao", "do hoa", "gaming"])
+                elif budget_val > 50_000_000:
+                    extras.extend(["cao cap", "high end", "gaming performance"])
+
         else:
             # Improve lexical hit-rate by appending user constraints when available.
             for key in ("brand", "purpose", "budget", "socket", "ramDdr", "ramBus"):
@@ -89,12 +109,12 @@ class DBRetrievalAgent:
 
     @staticmethod
     def _is_generic_build_intent(normalized_query: str) -> bool:
-        build_intent = bool(re.search(r"\b(build|cau hinh|tu van|goi y)\b", normalized_query))
+        build_intent = bool(re.search(r"\b(build|biu|bui|cau hinh|tu van|goi y|rap|lap)\b", normalized_query))
         if not build_intent:
             return False
 
         explicit_component = bool(
-            re.search(r"\b(cpu|gpu|vga|mainboard|motherboard|ram|ssd|hdd|psu|case|thung may|cooler)\b", normalized_query)
+            re.search(r"\b(cpu|gpu|vga|card|mainboard|motherboard|ram|ssd|hdd|psu|nguon|case|thung may|cooler|tan nhiet)\b", normalized_query)
         )
         return not explicit_component
 
@@ -103,7 +123,7 @@ class DBRetrievalAgent:
         if not isinstance(context, dict):
             return None
 
-        for key in ("budgetMax", "budget_max"):
+        for key in ("budgetMax", "budget_max", "budgetExact", "budget_exact"):
             numeric = DBRetrievalAgent._to_number(context.get(key))
             if numeric is not None and numeric > 0:
                 return numeric
@@ -113,14 +133,21 @@ class DBRetrievalAgent:
             return None
 
         normalized = DBRetrievalAgent._normalize_for_matching(budget_text)
-        if re.search(r"(duoi|<|under)\s*10", normalized) or re.search(r"10\s*trieu\s*do\s*lai", normalized):
-            return 10_000_000
-        if re.search(r"10\s*(-|den|toi|~)\s*15", normalized):
-            return 15_000_000
-        if re.search(r"15\s*(-|den|toi|~)\s*20", normalized):
-            return 20_000_000
-        if re.search(r"20\s*(-|den|toi|~)\s*30", normalized):
-            return 30_000_000
+
+        # 1. Match ranges like "10-15 triệu"
+        range_match = re.search(r"(\d+)\s*(-|den|toi|~)\s*(\d+)\s*(trieu|tr|m)\b", normalized)
+        if range_match:
+            return float(range_match.group(3)) * 1_000_000
+
+        # 2. Match single numbers like "16 triệu", "16tr", "16.5tr"
+        single_num_match = re.search(r"(\d+([.,]\d+)?)\s*(trieu|tr|m)\b", normalized)
+        if not single_num_match:
+            # Try matching without space: "16tr"
+            single_num_match = re.search(r"(\d+([.,]\d+)?)(trieu|tr|m)\b", normalized)
+
+        if single_num_match:
+            val = float(single_num_match.group(1).replace(",", "."))
+            return val * 1_000_000
 
         return None
 
@@ -171,6 +198,8 @@ class DBRetrievalAgent:
 
     @staticmethod
     def _to_number(value: object) -> float | None:
+        if value is None:
+            return None
         if isinstance(value, (int, float)):
             return float(value)
         if not isinstance(value, str):
@@ -180,12 +209,19 @@ class DBRetrievalAgent:
         if not cleaned:
             return None
 
-        if re.fullmatch(r"\d+[.,]\d{1,2}", cleaned):
-            normalized = cleaned.replace(",", ".")
+        if "." in cleaned and "," in cleaned:
+            normalized = cleaned.replace(".", "").replace(",", ".")
+        elif "," in cleaned and cleaned.count(",") > 1:
+            normalized = cleaned.replace(",", "")
+        elif "." in cleaned and cleaned.count(".") > 1:
+            normalized = cleaned.replace(".", "")
+        elif "," in cleaned and len(cleaned.split(",")[1]) == 3:
+             normalized = cleaned.replace(",", "")
         else:
-            normalized = cleaned.replace(".", "").replace(",", "")
+            normalized = cleaned.replace(",", ".")
 
         try:
-            return float(normalized)
+            num = float(normalized)
+            return num if num >= 0 else None
         except ValueError:
             return None

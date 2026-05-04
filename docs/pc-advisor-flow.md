@@ -212,3 +212,29 @@ Expected behavior:
   - NVIDIA: enforce on GPU suggestions.
   - AMD: enforce on CPU and GPU suggestions.
   - ASUS/MSI and other board-partner brands: keep broad slot applicability.
+
+### 18) PSU wattage validation
+- System estimates total power draw from CPU `tdp_w` and GPU `recommended_psu_w`.
+- If PSU `wattage_w` is below GPU's recommended PSU wattage, a warning is injected into compatibility notes.
+- Fallback: if GPU has no `recommended_psu_w`, estimate from CPU TDP + 100W system base.
+
+### 19) RAM type compatibility (DDR generation)
+- Mainboard `ram_type` (array) is compared against RAM `ram_type` (string).
+- If DDR generation mismatches (e.g. DDR5 RAM on DDR4-only mainboard), hard incompatibility warning is raised.
+
+### 20) iGPU safety check (no display output)
+- If no discrete GPU is selected and CPU `has_igpu` is false, a critical warning is raised.
+- This prevents users from building a PC that physically cannot output video.
+- If `has_igpu` data is missing, the check is silently skipped.
+
+### 21) M.2 slot count validation
+- Number of M.2 NVMe SSDs selected is compared against mainboard `m2_slots`.
+- Warning raised if SSD count exceeds available M.2 slots.
+
+### 22) Form factor match (Mainboard <-> Case)
+- Mainboard `form_factor` is checked against Case `case_type` using a compatibility matrix.
+- Example: ATX mainboard does not fit Mini-ITX case.
+
+### 23) Cooler socket compatibility
+- Cooler `supported_sockets` array is matched against CPU/Mainboard `socket`.
+- Flexible matching handles format variations (e.g. "LGA 1700" vs "LGA1700").

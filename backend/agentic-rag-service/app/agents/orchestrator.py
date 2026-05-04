@@ -8,9 +8,10 @@ from typing import Any, Dict, List, Optional
 from app.agents.contracts import AgentTask, RetrievedEvidence
 from app.agents.db_retrieval_agent import DBRetrievalAgent
 from app.agents.web_retrieval_agent import WebRetrievalAgent
-from app.schemas.chat import AgentActionTrace, ChatResponse, ChatTrace, Citation, ProductSuggestion
+from app.schemas.chat import AgentActionTrace, ChatContext, ChatResponse, ChatTrace, Citation, ProductSuggestion
 from app.services.llm_gateway import LLMGateway
 from app.services.smolagent_adapter import SmolAgentAdapter
+from app.services.compatibility_checker import validate_build
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ CATEGORY_SLOT_BY_ID = {
     "69ac61dba931fab39af12335": "COOLER",
 }
 
-CORE_BUILD_SLOTS = {"CPU", "MAINBOARD", "RAM", "SSD", "PSU"}
+CORE_BUILD_SLOTS = {"CPU", "MAINBOARD", "RAM", "SSD", "PSU", "GPU"}
 ACCESSORY_SLOTS = {"CASE", "COOLER"}
 DEFAULT_SLOT_PRIORITY = {
     "CPU": 0,
@@ -49,24 +50,34 @@ LOW_BUDGET_SLOT_PRIORITY = {
     "CASE": 6,
     "COOLER": 7,
 }
+GAMING_SLOT_PRIORITY = {
+    "GPU": 0,
+    "CPU": 1,
+    "MAINBOARD": 2,
+    "RAM": 3,
+    "SSD": 4,
+    "PSU": 5,
+    "CASE": 6,
+    "COOLER": 7,
+}
 LOW_BUDGET_SLOT_CAP_RATIO = {
-    "CPU": 0.38,
-    "MAINBOARD": 0.22,
-    "RAM": 0.16,
-    "SSD": 0.15,
-    "PSU": 0.12,
-    "CASE": 0.10,
-    "COOLER": 0.08,
-    "GPU": 0.40,
+    "CPU": 0.32,
+    "MAINBOARD": 0.16,
+    "RAM": 0.12,
+    "SSD": 0.12,
+    "PSU": 0.08,
+    "CASE": 0.06,
+    "COOLER": 0.04,
+    "GPU": 0.45,
 }
 LOW_BUDGET_RELAXED_SLOT_CAP_RATIO = {
-    "CPU": 0.50,
-    "MAINBOARD": 0.32,
-    "RAM": 0.22,
-    "SSD": 0.22,
-    "PSU": 0.18,
-    "CASE": 0.15,
-    "COOLER": 0.12,
+    "CPU": 0.40,
+    "MAINBOARD": 0.22,
+    "RAM": 0.15,
+    "SSD": 0.15,
+    "PSU": 0.12,
+    "CASE": 0.08,
+    "COOLER": 0.06,
     "GPU": 0.55,
 }
 BUDGET_MIN_FLOOR_RATIO = {
@@ -79,15 +90,45 @@ BUDGET_MIN_FLOOR_RATIO = {
     "COOLER": 0.015,
     "GPU": 0.15,
 }
-PRIMARY_BUILD_TARGET_RATIO = {
-    "CPU": 0.38,
-    "MAINBOARD": 0.20,
+GAMING_SLOT_CAP_RATIO = {
+    "CPU": 0.28,
+    "MAINBOARD": 0.15,
+    "RAM": 0.08,
+    "SSD": 0.08,
+    "PSU": 0.08,
+    "CASE": 0.05,
+    "COOLER": 0.04,
+    "GPU": 0.55,
+}
+GAMING_RELAXED_SLOT_CAP_RATIO = {
+    "CPU": 0.35,
+    "MAINBOARD": 0.22,
     "RAM": 0.12,
     "SSD": 0.12,
     "PSU": 0.10,
     "CASE": 0.08,
+    "COOLER": 0.06,
+    "GPU": 0.58,
+}
+PRIMARY_BUILD_TARGET_RATIO = {
+    "CPU": 0.25,
+    "MAINBOARD": 0.14,
+    "RAM": 0.08,
+    "SSD": 0.08,
+    "PSU": 0.08,
+    "CASE": 0.05,
     "COOLER": 0.04,
-    "GPU": 0.30,
+    "GPU": 0.55,
+}
+HIGH_BUDGET_GAMING_TARGET_RATIO = {
+    "CPU": 0.30,
+    "MAINBOARD": 0.16,
+    "RAM": 0.08,
+    "SSD": 0.08,
+    "PSU": 0.07,
+    "CASE": 0.05,
+    "COOLER": 0.03,
+    "GPU": 0.50,
 }
 MIDRANGE_10_15_TARGET_RATIO = {
     "CPU": 0.42,
@@ -100,27 +141,78 @@ MIDRANGE_10_15_TARGET_RATIO = {
     "GPU": 0.25,
 }
 SLOT_HARD_CAP_RATIO = {
-    "CPU": 0.45,
+    "CPU": 0.40,
+    "MAINBOARD": 0.22,
+    "RAM": 0.15,
+    "SSD": 0.15,
+    "PSU": 0.12,
+    "CASE": 0.10,
+    "COOLER": 0.08,
+    "GPU": 0.55,
+}
+DEFAULT_SLOT_CAP_RATIO = SLOT_HARD_CAP_RATIO
+DEFAULT_RELAXED_SLOT_CAP_RATIO = {
+    "CPU": 0.50,
     "MAINBOARD": 0.28,
-    "RAM": 0.18,
-    "SSD": 0.18,
-    "PSU": 0.16,
-    "CASE": 0.14,
+    "RAM": 0.20,
+    "SSD": 0.20,
+    "PSU": 0.15,
+    "CASE": 0.12,
     "COOLER": 0.10,
-    "GPU": 0.60,
+    "GPU": 0.65,
 }
 OFFICE_SLOT_HARD_CAP_RATIO = {
-    "CPU": 0.46,
-    "MAINBOARD": 0.24,
-    "RAM": 0.16,
-    "SSD": 0.16,
-    "PSU": 0.12,
-    "CASE": 0.08,
+    "CPU": 0.35,
+    "MAINBOARD": 0.18,
+    "RAM": 0.12,
+    "SSD": 0.12,
+    "PSU": 0.10,
+    "CASE": 0.06,
+    "COOLER": 0.04,
+    "GPU": 0.20,
+}
+DESIGN_SLOT_CAP_RATIO = {
+    "CPU": 0.28,
+    "MAINBOARD": 0.12,
+    "RAM": 0.15,
+    "SSD": 0.10,
+    "PSU": 0.08,
+    "CASE": 0.05,
     "COOLER": 0.05,
     "GPU": 0.35,
 }
-MAX_PRODUCT_SUGGESTIONS = 12
-MAX_PRODUCTS_PER_SLOT = 2
+DESIGN_RELAXED_SLOT_CAP_RATIO = {
+    "CPU": 0.35,
+    "MAINBOARD": 0.18,
+    "RAM": 0.18,
+    "SSD": 0.15,
+    "PSU": 0.10,
+    "CASE": 0.08,
+    "COOLER": 0.06,
+    "GPU": 0.45,
+}
+STREAMING_SLOT_CAP_RATIO = {
+    "CPU": 0.32,
+    "MAINBOARD": 0.12,
+    "RAM": 0.15,
+    "SSD": 0.08,
+    "PSU": 0.08,
+    "CASE": 0.05,
+    "COOLER": 0.05,
+    "GPU": 0.28,
+}
+STREAMING_RELAXED_SLOT_CAP_RATIO = {
+    "CPU": 0.38,
+    "MAINBOARD": 0.18,
+    "RAM": 0.18,
+    "SSD": 0.12,
+    "PSU": 0.10,
+    "CASE": 0.08,
+    "COOLER": 0.06,
+    "GPU": 0.35,
+}
+MAX_PRODUCT_SUGGESTIONS = 36
+MAX_PRODUCTS_PER_SLOT = 6
 MAX_REPLACEMENT_SUGGESTIONS = 4
 REPLACEMENT_SLOT_KEYWORDS = {
     "CPU": ["cpu", "vi xu ly", "chip"],
@@ -139,6 +231,38 @@ OFFICE_PURPOSE_KEYWORDS = (
     "word",
     "excel",
 )
+DESIGN_PURPOSE_KEYWORDS = (
+    "design",
+    "do hoa",
+    "thiet ke",
+    "photoshop",
+    "illustrator",
+    "lightroom",
+    "coreldraw",
+    "ai",
+    "ps",
+    "pr",
+    "premiere",
+    "after effects",
+    "blender",
+    "3d",
+    "render",
+    "video",
+    "edit video",
+    "dung phim",
+)
+STREAMING_PURPOSE_KEYWORDS = (
+    "stream",
+    "streaming",
+    "live stream",
+    "phat song",
+    "obs",
+    "content creator",
+    "youtuber",
+    "record",
+    "quay phim",
+    "game streaming",
+)
 GPU_REQUEST_KEYWORDS = (
     "gpu",
     "vga",
@@ -153,6 +277,7 @@ GPU_REQUEST_KEYWORDS = (
 )
 
 MAINBOARD_CPU_PRICE_RATIO_CAP_BY_BUDGET = (
+    (16_000_000.0, 1.50),  # 16M budget: allow MB up to 1.5x CPU
     (20_000_000.0, 0.95),
     (30_000_000.0, 1.05),
 )
@@ -205,10 +330,54 @@ class OrchestratorAgent:
         iterations = 0
         traces: List[AgentActionTrace] = []
         evidences: List[RetrievedEvidence] = []
+        timing_metrics_ms: Dict[str, int] = {
+            "db_retrieval": 0,
+            "web_retrieval": 0,
+            "synthesis": 0,
+            "postprocess": 0,
+        }
 
         max_iters = max_iterations or self.default_max_iterations
         db_max_results = 36
         started_at = time.monotonic()
+
+        # Early Exit for Greetings or Missing Info to avoid unnecessary Planning/DB/Web searches
+        is_greeting = self._is_greeting_intent(query)
+        needs_clarification = self._is_clarification_needed(query, context)
+        
+        if is_greeting or needs_clarification:
+            traces.append(
+                AgentActionTrace(
+                    agent="orchestrator",
+                    action="intent_detection",
+                    status="success",
+                    observation="Greeting or missing info detected. Responding directly.",
+                )
+            )
+            
+            synthesis_started_at = time.monotonic()
+            answer = self._sanitize_answer_text(
+                self._synthesize_answer(
+                    query=query,
+                    context=context,
+                    evidences=[],
+                    compatibility_notes=[],
+                )
+            )
+            timing_metrics_ms["synthesis"] = int((time.monotonic() - synthesis_started_at) * 1000)
+            total_duration_ms = int((time.monotonic() - started_at) * 1000)
+            
+            return ChatResponse(
+                answer=answer,
+                confidence=0.5,
+                products=[],
+                primaryBuild=[],
+                alternativesBySlot={},
+                estimatedBuildTotal=0,
+                budgetStatus=None,
+                citations=[],
+                trace=ChatTrace(iterations=0, actions=traces),
+            )
 
         plan_note = self.smolagent_adapter.summarize_plan(query=query, context=context)
         if plan_note:
@@ -236,7 +405,9 @@ class OrchestratorAgent:
             iterations += 1
 
             # Thought: start with DB retrieval first.
+            db_started_at = time.monotonic()
             db_obs = self.db_agent.run(AgentTask(query=query, context=context, max_results=db_max_results))
+            timing_metrics_ms["db_retrieval"] += int((time.monotonic() - db_started_at) * 1000)
             traces.append(
                 AgentActionTrace(
                     agent=self.db_agent.name,
@@ -264,7 +435,9 @@ class OrchestratorAgent:
                 )
                 break
 
+            web_started_at = time.monotonic()
             web_obs = self.web_agent.run(AgentTask(query=query, context=context, max_results=5))
+            timing_metrics_ms["web_retrieval"] += int((time.monotonic() - web_started_at) * 1000)
             traces.append(
                 AgentActionTrace(
                     agent=self.web_agent.name,
@@ -280,12 +453,23 @@ class OrchestratorAgent:
 
         selected_products = self._load_selected_products(context)
         compatibility = self._infer_socket_constraints(selected_products)
-        budget_constraints = self._extract_budget_constraints(context)
+        budget_constraints = OrchestratorAgent._extract_budget_constraints(context, query)
+        is_gaming = self._is_gaming_context(context, query)
+        budget_constraints["gaming_mode"] = is_gaming
+
+        # --- Hardware compatibility checks (PSU, RAM, iGPU, M.2, form factor, cooler) ---
+        hw_warnings = validate_build(selected_products)
+        if hw_warnings:
+            notes = compatibility.setdefault("notes", [])
+            if isinstance(notes, list):
+                notes.extend(hw_warnings)
+
         office_gpu_note = self._build_office_gpu_note(context, budget_constraints)
         if office_gpu_note:
             notes = compatibility.get("notes")
             if isinstance(notes, list):
                 notes.append(office_gpu_note)
+        
         response_evidences = list(evidences)
         replacement_slot = self._extract_replacement_slot(query)
         direct_component_slot = self._extract_direct_component_slot(query)
@@ -333,6 +517,58 @@ class OrchestratorAgent:
 
         if not replacement_slot and not products:
             products = self._build_product_suggestions(evidences, compatibility, context, query)
+
+            # For high budgets, supplement with cross-platform CPUs and mainboards
+            bc_supp = OrchestratorAgent._extract_budget_constraints(context, query)
+            supp_budget = bc_supp.get("budget_max")
+            if isinstance(supp_budget, (int, float)) and supp_budget >= 16_000_000:
+                existing_ids = {p.product_id for p in products}
+                selected_brand = OrchestratorAgent._extract_selected_brand(context)
+                supp_config = [
+                    ("CPU", 0.30),
+                    ("MAINBOARD", 0.30),
+                    ("GPU", 0.50),
+                ]
+                for supp_slot, supp_target_ratio in supp_config:
+                    supp_docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                        slot=supp_slot,
+                        budget_max=float(supp_budget),
+                        target_price=float(supp_budget) * supp_target_ratio,
+                        limit=20,
+                        exclude_product_ids=[],
+                        selected_brand=selected_brand,
+                        preferred_socket=None,
+                        preferred_platform=None,
+                    )
+                    for doc in supp_docs:
+                        doc_id = str(doc.get("_id", ""))
+                        if not doc_id or doc_id in existing_ids:
+                            continue
+                        doc_name = OrchestratorAgent._sanitize_text(doc.get("name", ""))
+                        doc_slot = OrchestratorAgent._infer_slot(
+                            category_id=OrchestratorAgent._normalize_category_id(doc.get("categoryId")),
+                            category_code=doc.get("categoryCode"),
+                            name=doc_name,
+                        )
+                        if (doc_slot or "").upper() != supp_slot:
+                            continue
+                        doc_price = OrchestratorAgent._to_number(doc.get("price"))
+                        if doc_price is None or doc_price <= 0:
+                            continue
+                        doc_socket = OrchestratorAgent._extract_socket_from_raw(doc)
+                        products.append(ProductSuggestion(
+                            productId=doc_id,
+                            categoryId=OrchestratorAgent._normalize_category_id(doc.get("categoryId")),
+                            slot=doc_slot,
+                            name=doc_name,
+                            price=int(doc_price),
+                            image=doc.get("image"),
+                            url=doc.get("url"),
+                            socket=doc_socket,
+                            reason="Goi y tu danh sach mo rong",
+                        ))
+                        existing_ids.add(doc_id)
+
         if not replacement_slot and products:
             current_slots = {(item.slot or "").upper() for item in products if item.slot}
             if len(current_slots) < 5:
@@ -440,20 +676,96 @@ class OrchestratorAgent:
             if isinstance(notes, list):
                 notes.append(under_budget_data_note)
 
+        # --- FINAL CLEANING: Strictly enforce budget constraints on EVERY product ---
+        budget_constraints = OrchestratorAgent._extract_budget_constraints(context, query)
+        budget_max = budget_constraints.get("budget_max")
+        logger.info(f"[Orchestrator] Final cleaning. budget_max={budget_max}, initial products={len(products)}")
+
+        # For replacement flows, use full budget instead of remaining
+        if replacement_slot and isinstance(budget_max, (int, float)):
+            budget_constraints["remaining_budget"] = float(budget_max)
+
+        products = [
+            p for p in products
+            if self._is_within_budget_constraints(self._to_number(p.price), p.slot, budget_constraints, enforce_slot_caps=False)
+        ]
+        logger.info(f"[Orchestrator] After cleaning: {len(products)} products")
+        
+        # Ensure response_evidences only contains what's in the filtered products
+        if products:
+            response_evidences = self._evidences_from_products(products)
+        else:
+            # If nothing fits the budget, we MUST NOT talk about expensive parts
+            response_evidences = []
+
+        # --- PRIMARY BUILD SELECTION (Moved before synthesis) ---
+        postprocess_started_at = time.monotonic()
+        if replacement_slot:
+            primary_build = list(products)
+            response_products = list(products)
+            estimated_build_total = self._sum_product_prices(primary_build)
+            budget_status = self._estimate_budget_status(estimated_build_total, budget_constraints)
+        else:
+            # 1. Selection and Filling
+            primary_build = self._select_primary_build(products, budget_constraints)
+            primary_build = self._ensure_required_primary_slots(primary_build, budget_constraints, context)
+            
+            # 2. Rebalancing
+            primary_build = self._rebalance_mainboard_cpu_with_db(primary_build, budget_constraints, context)
+            primary_build = self._rebalance_cpu_gpu_with_db(primary_build, budget_constraints, context)
+            primary_build = self._lift_primary_to_target(primary_build, budget_constraints, context)
+            primary_build = self._rebalance_mainboard_cpu_with_db(primary_build, budget_constraints, context)
+            primary_build = self._rebalance_cpu_gpu_with_db(primary_build, budget_constraints, context)
+            primary_build = self._ensure_required_primary_slots(primary_build, budget_constraints, context)
+            primary_build = self._enforce_office_overkill_caps(primary_build, budget_constraints, context)
+            
+            # 2b. For gaming mode: ensure GPU is strong enough, upgrade if possible
+            if is_gaming:
+                primary_build = self._upgrade_gaming_gpu(primary_build, budget_constraints, context, products)
+                # Re-check required slots after GPU upgrade (COOLER might have been skipped due to budget)
+                primary_build = self._ensure_required_primary_slots(primary_build, budget_constraints, context)
+            
+            # 2c. For office mode: ensure CPU has igpu (integrated graphics)
+            if bool(budget_constraints.get("office_mode")):
+                primary_build = self._ensure_office_igpu(primary_build, budget_constraints, context)
+            
+            # 2d. Final compatibility check: ensure CPU-Mainboard are socket compatible
+            primary_build = self._final_compatibility_check(primary_build, budget_constraints, context)
+            
+            # 2e. Final budget enforcement: downsize if over budget
+            primary_build = self._enforce_budget_cap(primary_build, budget_constraints, context, products)
+            
+            # 3. Final sync
+            response_products = self._merge_products_with_primary(products, primary_build)
+            estimated_build_total = self._sum_product_prices(primary_build)
+            budget_status = self._estimate_budget_status(estimated_build_total, budget_constraints)
+            
+            # Update evidence for synthesis to be based on the final selections
+            response_evidences = self._evidences_from_products(response_products)
+        
+        alternatives_by_slot = self._group_alternatives_by_slot(response_products, primary_build)
+        timing_metrics_ms["postprocess"] = int((time.monotonic() - postprocess_started_at) * 1000)
+
+        # --- SYNTHESIS (Now uses the finalized build) ---
+        synthesis_started_at = time.monotonic()
         if replacement_slot and not products:
             answer = self._sanitize_answer_text(
                 f"Toi chua tim duoc {replacement_slot} thay the phu hop trong ngan sach hien tai. "
                 "Ban co the mo rong ngan sach hoac noii rong yeu cau de toi goi y them."
             )
         else:
+            # Use ONLY primary_build for synthesis - no alternatives allowed
             answer = self._sanitize_answer_text(
                 self._synthesize_answer(
                     query=query,
                     context=context,
                     evidences=response_evidences,
                     compatibility_notes=compatibility.get("notes", []),
+                    filtered_products=primary_build,  # CRITICAL: Only use primary build, no alternatives
                 )
             )
+        timing_metrics_ms["synthesis"] = int((time.monotonic() - synthesis_started_at) * 1000)
+
         citations = [
             Citation(
                 source="db" if ev.source == "db" else "web",
@@ -464,40 +776,56 @@ class OrchestratorAgent:
             )
             for ev in response_evidences[:MAX_PRODUCT_SUGGESTIONS]
         ]
-
         confidence = self._estimate_confidence(response_evidences)
-        if replacement_slot:
-            primary_build = list(products)
-            response_products = list(products)
-            alternatives_by_slot = self._group_alternatives_by_slot(response_products, primary_build)
-            estimated_build_total = self._sum_product_prices(primary_build)
-            budget_status = self._estimate_budget_status(estimated_build_total, budget_constraints)
-        else:
-            primary_build = self._select_primary_build(products, budget_constraints)
-            primary_build = self._ensure_required_primary_slots(primary_build, budget_constraints, context)
-            primary_build = self._rebalance_mainboard_cpu_with_db(primary_build, budget_constraints, context)
-            primary_build = self._rebalance_cpu_gpu_with_db(primary_build, budget_constraints, context)
-            primary_build = self._lift_primary_to_target(primary_build, budget_constraints, context)
-            primary_build = self._rebalance_mainboard_cpu_with_db(primary_build, budget_constraints, context)
-            primary_build = self._rebalance_cpu_gpu_with_db(primary_build, budget_constraints, context)
-            primary_build = self._ensure_required_primary_slots(primary_build, budget_constraints, context)
-            primary_build = self._enforce_office_overkill_caps(primary_build, budget_constraints, context)
-            response_products = self._merge_products_with_primary(products, primary_build)
-            alternatives_by_slot = self._group_alternatives_by_slot(response_products, primary_build)
-            estimated_build_total = self._sum_product_prices(primary_build)
-            budget_status = self._estimate_budget_status(estimated_build_total, budget_constraints)
 
-        logger.info("Handled query with %s iterations, %s evidences", iterations, len(evidences))
+        total_duration_ms = int((time.monotonic() - started_at) * 1000)
+        traces.append(
+            AgentActionTrace(
+                agent="orchestrator",
+                action="timing_profile",
+                status="success",
+                observation=(
+                    f"db_retrieval_ms={timing_metrics_ms['db_retrieval']}; "
+                    f"web_retrieval_ms={timing_metrics_ms['web_retrieval']}; "
+                    f"synthesis_ms={timing_metrics_ms['synthesis']}; "
+                    f"postprocess_ms={timing_metrics_ms['postprocess']}; "
+                    f"total_ms={total_duration_ms}"
+                ),
+            )
+        )
+
+        logger.info(
+            "Handled query with %s iterations, %s evidences, timings(ms): db=%s web=%s synth=%s post=%s total=%s",
+            iterations,
+            len(evidences),
+            timing_metrics_ms["db_retrieval"],
+            timing_metrics_ms["web_retrieval"],
+            timing_metrics_ms["synthesis"],
+            timing_metrics_ms["postprocess"],
+            total_duration_ms,
+        )
+
+        bc = budget_constraints
+        detected_purpose = "gaming" if bc.get("gaming_mode") else (
+            "streaming" if bc.get("streaming_mode") else (
+                "design" if bc.get("design_mode") else (
+                    "office" if bc.get("office_mode") else None)))
+        context_update = ChatContext(
+            budget=str(bc.get("budget_max")) if bc.get("budget_max") else None,
+            purpose=detected_purpose,
+            budget_exact=int(bc.get("budget_max")) if bc.get("budget_max") else None,
+        )
 
         return ChatResponse(
             answer=answer,
             confidence=confidence,
-            products=response_products,
+            products=primary_build,  # Only primary build, no alternatives
             primaryBuild=primary_build,
-            alternativesBySlot=alternatives_by_slot,
+            alternativesBySlot={},  # No alternatives - design change per user request
             estimatedBuildTotal=estimated_build_total,
             budgetStatus=budget_status,
             citations=citations,
+            contextUpdate=context_update,
             trace=ChatTrace(iterations=iterations, actions=traces),
         )
 
@@ -531,50 +859,140 @@ class OrchestratorAgent:
         context: Dict[str, object],
         evidences: List[RetrievedEvidence],
         compatibility_notes: Optional[List[str]] = None,
+        filtered_products: Optional[List[ProductSuggestion]] = None,
     ) -> str:
-        if not evidences:
-            return (
-                "Toi chua tim thay du bang chung de dua ra cau tra loi chinh xac. "
-                "Vui long bo sung them rang buoc (ngan sach, muc dich, thuong hieu)."
-            )
+        # Final safety filter: Ensure no ghost expensive products reach the LLM
+        constraints = OrchestratorAgent._extract_budget_constraints(context, query)
+        if filtered_products:
+            filtered_products = [
+                p for p in filtered_products
+                if self._is_within_budget_constraints(self._to_number(p.price), p.slot, constraints, enforce_slot_caps=False)
+            ]
+        
+        # If no evidence and no products, only proceed to LLM for greetings or clarification requests
+        if not evidences and not filtered_products:
+            if not self._is_greeting_intent(query) and not self._is_clarification_needed(query, context):
+                return (
+                    "Tôi chưa tìm thấy đủ thông tin linh kiện phù hợp để tư vấn chính xác. "
+                    "Vui lòng cung cấp thêm ngân sách (ví dụ: 15 triệu) và nhu cầu (ví dụ: chơi game) để tôi hỗ trợ tốt nhất."
+                )
 
+        is_greeting = self._is_greeting_intent(query)
+        is_clarification = self._is_clarification_needed(query, context)
+        
+        prompt_mode = self._resolve_prompt_mode(context)
+        prompt_context: Dict[str, object] = self._compact_context_for_prompt(context) if prompt_mode == "compact" else (context if isinstance(context, dict) else {})
+
+        if is_greeting or is_clarification:
+            system_prompt = (
+                "Bạn là trợ lý tư vấn PC thông minh và thân thiện. "
+                "Người dùng đang chào hỏi hoặc yêu cầu tư vấn nhưng thiếu thông tin (ngân sách, nhu cầu). "
+                "Hãy trả lời một cách tự nhiên, lịch sự bằng tiếng Việt có dấu. "
+                "Nếu là chào hỏi, hãy chào lại và hỏi họ cần giúp gì. "
+                "Nếu là yêu cầu build máy thiếu thông tin, hãy liệt kê các thông tin bạn cần (ngân sách, mục đích sử dụng, v.v.). "
+                "Tuyệt đối KHÔNG dùng định dạng danh sách 1. 2. 3. của việc đề xuất linh kiện."
+            )
+            user_prompt = f"Truy vấn của người dùng: {query}\nNgữ cảnh: {prompt_context}"
+            return self.llm_gateway.generate(system_prompt=system_prompt, user_prompt=user_prompt)
+
+        evidence_limit = 6 if prompt_mode == "compact" else 10
+        snippet_limit = 180 if prompt_mode == "compact" else 400
         evidence_text = "\n".join([
             (
                 f"- [{ev.source}] {self._sanitize_text(ev.title)} | score={ev.score:.3f} | "
-                f"snippet={self._sanitize_text(self._strip_html(ev.snippet))}"
+                f"snippet={self._truncate_text(self._sanitize_text(self._strip_html(ev.snippet)), snippet_limit)}"
             )
-            for ev in evidences[:10]
+            for ev in evidences[:evidence_limit]
         ])
+
+        filtered_text = ""
+        if filtered_products:
+            filtered_text = "\n".join([
+                f"- {p.name} | Gia: {p.price} | Slot: {p.slot}"
+                for p in filtered_products[:12]
+            ])
+
         system_prompt = (
             "Bạn là trợ lý tư vấn linh kiện PC. "
-            "Chỉ dựa trên các bằng chứng đã cung cấp, không suy đoán vô căn cứ. "
+            "CHỈ ĐƯỢC PHÉP đề xuất linh kiện từ DANH SÁCH LINH KIỆN HỢP LỆ được cung cấp. "
+            "KHÔNG được đề xuất linh kiện vượt quá ngân sách hoặc không có trong danh sách. "
             "Trả lời ngắn gọn, sạch, dễ đọc bằng TIẾNG VIỆT CÓ DẤU. "
             "Bắt buộc dùng plain text, KHÔNG dùng markdown (**, *, #, - cho tiêu đề). "
-            "Chỉ dùng danh sách số 1., 2., 3. nếu cần."
         )
         user_prompt = (
             f"Truy vấn: {query}\n"
-            f"Ngữ cảnh: {context}\n"
-            f"Bằng chứng:\n{evidence_text}\n"
-            "Hãy tổng hợp câu trả lời cuối cùng theo ĐÚNG format sau:\n"
-            "Tóm tắt: <1-2 câu ngắn, nêu rõ đã dựa trên dữ liệu nào>\n"
+            f"Ngữ cảnh: {prompt_context}\n"
+            f"Bằng chứng tham khảo:\n{evidence_text}\n"
+            f"DANH SÁCH LINH KIỆN HỢP LỆ:\n{filtered_text}\n"
+            "Lưu ý: CHỉ hiển thị danh sách linh kiện ĐƯỢC CHỌN (primary build), KHÔNG hiển thị danh sách thay thế.\n"
+            "Hãy tổng hợp câu trả lời theo format sau:\n"
+            "Tóm tắt: <1-2 câu ngắn>\n"
             "Đề xuất ưu tiên:\n"
             "1. <Tên sản phẩm 1>\n"
             "   Lý do: <1 câu>\n"
-            "   Thông số chính: <tối đa 2 thông số ngắn>\n"
+            "   Thông số chính: <tối đa 2 thông số>\n"
             "2. <Tên sản phẩm 2>\n"
             "   Lý do: <1 câu>\n"
-            "   Thông số chính: <tối đa 2 thông số ngắn>\n"
-            "3. <Tên sản phẩm 3 nếu có>\n"
-            "   Lý do: <1 câu>\n"
-            "   Thông số chính: <tối đa 2 thông số ngắn>\n"
-            "Lưu ý: <tối đa 1-2 dòng, chỉ nếu thật sự cần>\n"
-            "Bắt buộc dùng tiếng Việt có dấu. Không lặp ý, không chèn ký tự markdown, không xuống dòng thừa."
+            "   Thông số chính: <tối đa 2 thông số>\n"
+            "Lưu ý: <nếu cần>\n"
+            "Bắt buộc dùng tiếng Việt có dấu."
         )
         if compatibility_notes:
             notes_block = "\n".join([f"- {note}" for note in compatibility_notes])
             user_prompt += f"\nRang buoc tuong thich:\n{notes_block}"
         return self.llm_gateway.generate(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    @staticmethod
+    def _resolve_prompt_mode(context: Dict[str, object]) -> str:
+        if not isinstance(context, dict):
+            return "compact"
+        value = context.get("__promptMode")
+        if not isinstance(value, str):
+            return "compact"
+        normalized = value.strip().lower()
+        if normalized in {"compact", "full"}:
+            return normalized
+        return "compact"
+
+    @staticmethod
+    def _truncate_text(value: str, max_length: int) -> str:
+        if not value or max_length <= 0:
+            return ""
+        if len(value) <= max_length:
+            return value
+        return value[: max_length - 3].rstrip() + "..."
+
+    @staticmethod
+    def _compact_context_for_prompt(context: Dict[str, object]) -> Dict[str, object]:
+        if not isinstance(context, dict):
+            return {}
+
+        compact: Dict[str, object] = {}
+        for key in ("budget", "budgetMin", "budgetMax", "purpose", "brand", "socket", "ramDdr", "ramBus"):
+            value = context.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            compact[key] = value
+
+        selected_components = context.get("selectedComponents")
+        if isinstance(selected_components, list) and selected_components:
+            compact_components: List[Dict[str, object]] = []
+            for item in selected_components[:5]:
+                if not isinstance(item, dict):
+                    continue
+                compact_components.append(
+                    {
+                        "slot": item.get("slot"),
+                        "name": item.get("name"),
+                        "price": item.get("price"),
+                    }
+                )
+            if compact_components:
+                compact["selectedComponents"] = compact_components
+
+        return compact
 
     def _ensure_required_primary_slots(
         self,
@@ -585,7 +1003,22 @@ class OrchestratorAgent:
         if not primary:
             return primary
 
-        required_slots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU"]
+        gaming_mode = bool(constraints.get("gaming_mode"))
+        design_mode = bool(constraints.get("design_mode"))
+        streaming_mode = bool(constraints.get("streaming_mode"))
+        office_mode = bool(constraints.get("office_mode"))
+        required_slots = list(CORE_BUILD_SLOTS)
+        
+        # Always add CASE and COOLER as they are essential for a complete build
+        if "COOLER" not in required_slots:
+            required_slots.append("COOLER")
+        if "CASE" not in required_slots:
+            required_slots.append("CASE")
+        
+        if not gaming_mode and not design_mode and not streaming_mode:
+            # For office builds, GPU is not strictly required
+            required_slots = [s for s in required_slots if s != "GPU"]
+            
         present_slots = {(item.slot or "").upper() for item in primary if item.slot}
         missing_slots = [slot for slot in required_slots if slot not in present_slots]
         if not missing_slots:
@@ -600,19 +1033,42 @@ class OrchestratorAgent:
         cpu_socket = self._extract_socket_from_product(cpu_item) if cpu_item else None
         cpu_platform = self._extract_platform_from_text(cpu_item.name) if cpu_item else None
         current_total = self._sum_product_prices(primary)
-        ceiling = budget_max * 1.03
+        ceiling = budget_max * 1.07
         existing_ids = {item.product_id for item in primary}
 
         for slot in missing_slots:
-            # Choose a budget-aware target per slot when fetching supplements.
+            ratio = self._target_ratio_for_slot(constraints, slot)
+            
+            # For gaming mode, give more budget to GPU (up to 65% of budget)
+            if gaming_mode and slot == "GPU":
+                slot_budget_max = budget_max * 0.65
+            elif gaming_mode and slot == "MAINBOARD":
+                slot_budget_max = budget_max * 0.25  # 25% for gaming mainboard (4M for 16M budget)
+            elif design_mode and slot == "RAM":
+                slot_budget_max = budget_max * 0.18  # 18% for design RAM (32GB+)
+            elif design_mode and slot == "SSD":
+                slot_budget_max = budget_max * 0.12  # 12% for fast NVMe SSD
+            elif design_mode and slot == "MAINBOARD":
+                slot_budget_max = budget_max * 0.22  # 22% for design mainboard
+            elif streaming_mode and slot == "RAM":
+                slot_budget_max = budget_max * 0.18  # 18% for streaming RAM (32GB+)
+            elif streaming_mode and slot == "MAINBOARD":
+                slot_budget_max = budget_max * 0.22  # 22% for streaming mainboard
+            elif office_mode and slot == "MAINBOARD":
+                slot_budget_max = budget_max * 0.20  # 20% for office mainboard (ensure socket compatibility)
+            elif office_mode and slot == "SSD":
+                slot_budget_max = budget_max * 0.12  # 12% for office SSD
+            else:
+                slot_budget_max = budget_max * ratio
+            
             target_price = None
             target_min = constraints.get("target_min")
             if isinstance(target_min, (int, float)) and target_min > 0:
-                target_price = target_min * self._target_ratio_for_slot(constraints, slot)
+                target_price = target_min * ratio
 
             docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
                 slot=slot,
-                budget_max=float(budget_max),
+                budget_max=float(slot_budget_max),
                 target_price=target_price,
                 limit=36,
                 selected_brand=selected_brand,
@@ -620,13 +1076,14 @@ class OrchestratorAgent:
                 preferred_platform=cpu_platform if slot == "MAINBOARD" else None,
             )
             if not docs:
+                # Fallback: try without socket filter but with platform-based chip matching
                 docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
                     slot=slot,
-                    budget_max=float(budget_max),
+                    budget_max=float(slot_budget_max),
                     target_price=None,
                     limit=48,
                     selected_brand=selected_brand,
-                    preferred_socket=cpu_socket if slot == "MAINBOARD" else None,
+                    preferred_socket=None,  # No socket filter in fallback
                     preferred_platform=cpu_platform if slot == "MAINBOARD" else None,
                 )
 
@@ -674,6 +1131,7 @@ class OrchestratorAgent:
                 if not candidate_id or candidate_id in existing_ids:
                     continue
 
+                candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                 candidate = ProductSuggestion(
                     productId=candidate_id,
                     categoryId=category_id,
@@ -682,12 +1140,13 @@ class OrchestratorAgent:
                     price=int(candidate_price),
                     image=doc.get("image"),
                     url=doc.get("url"),
+                    socket=candidate_socket,
                     reason="Bo sung slot bat buoc cho bo chinh",
                 )
 
                 tentative_total = current_total + candidate_price
                 if tentative_total > ceiling:
-                    if slot in CORE_BUILD_SLOTS:
+                    if slot in CORE_BUILD_SLOTS or slot in ("CASE", "COOLER"):
                         overflow = tentative_total - ceiling
                         if overflow < best_over_budget_overflow:
                             best_over_budget_overflow = overflow
@@ -710,7 +1169,7 @@ class OrchestratorAgent:
             if best is None and slot == "MAINBOARD" and best_mainboard_relaxed is not None:
                 best = best_mainboard_relaxed
 
-            if best is None and slot in CORE_BUILD_SLOTS and best_over_budget_core is not None:
+            if best is None and (slot in CORE_BUILD_SLOTS or slot in ("CASE", "COOLER")) and best_over_budget_core is not None:
                 primary = self._make_room_for_required_slot(
                     primary,
                     required_price=float(best_over_budget_core.price or 0),
@@ -809,6 +1268,7 @@ class OrchestratorAgent:
                 existing_ids.add(best.product_id)
                 current_total = self._sum_product_prices(primary)
                 if (best.slot or "").upper() == "MAINBOARD" and cpu_item:
+                    primary_before = list(primary)
                     primary = self._enforce_primary_cpu_mainboard_compatibility(
                         primary,
                         {
@@ -816,6 +1276,9 @@ class OrchestratorAgent:
                             for slot_key in {((item.slot or "").upper()) for item in primary if item.slot}
                         },
                     )
+                    mb_after = next((item for item in primary if (item.slot or "").upper() == "MAINBOARD"), None)
+                    if mb_after is None:
+                        primary = primary_before
 
         return primary
 
@@ -858,7 +1321,9 @@ class OrchestratorAgent:
         mb_item = primary[mb_idx]
         cpu_price = self._to_number(cpu_item.price)
         mb_price = self._to_number(mb_item.price)
-        if self._is_mainboard_price_balanced(mb_price, cpu_price, constraints):
+        is_balanced = self._is_mainboard_price_balanced(mb_price, cpu_price, constraints)
+        is_compatible = OrchestratorAgent._are_products_socket_compatible(cpu_item, mb_item)
+        if is_balanced and is_compatible:
             return primary
 
         budget_max = constraints.get("budget_max")
@@ -869,17 +1334,18 @@ class OrchestratorAgent:
         cpu_socket = self._extract_socket_from_product(cpu_item)
         cpu_platform = self._extract_platform_from_text(cpu_item.name)
         current_total = self._sum_product_prices(primary)
-        ceiling = float(budget_max) * 1.03
+        ceiling = float(budget_max) * 1.05
 
+        target_mb_price = (cpu_price * 0.8) if cpu_price else (budget_max * 0.15)
         cheaper_mainboards = self.db_agent.mongo_service.get_alternative_products_for_slot(
             slot="MAINBOARD",
             budget_max=float(budget_max),
-            target_price=cpu_price if isinstance(cpu_price, (int, float)) else None,
+            target_price=target_mb_price,
             limit=72,
             exclude_product_ids=[mb_item.product_id],
             selected_brand=selected_brand,
-            preferred_socket=None,
-            preferred_platform=None,
+            preferred_socket=cpu_socket,
+            preferred_platform=cpu_platform,
         )
         for doc in cheaper_mainboards:
             category_id = self._normalize_category_id(doc.get("categoryId"))
@@ -903,6 +1369,7 @@ class OrchestratorAgent:
                 continue
             if candidate_price is None or candidate_price <= 0:
                 continue
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
             candidate = ProductSuggestion(
                 productId=str(doc.get("_id", "")),
                 categoryId=category_id,
@@ -911,6 +1378,7 @@ class OrchestratorAgent:
                 price=int(candidate_price),
                 image=doc.get("image"),
                 url=doc.get("url"),
+                socket=candidate_socket,
                 reason="Can bang gia MAINBOARD so voi CPU",
             )
             primary[mb_idx] = candidate
@@ -953,6 +1421,7 @@ class OrchestratorAgent:
             tentative_total = current_total - (cpu_price or 0.0) + candidate_price
             if tentative_total > ceiling:
                 continue
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
             candidate = ProductSuggestion(
                 productId=str(doc.get("_id", "")),
                 categoryId=category_id,
@@ -961,6 +1430,7 @@ class OrchestratorAgent:
                 price=int(candidate_price),
                 image=doc.get("image"),
                 url=doc.get("url"),
+                socket=candidate_socket,
                 reason="Nang CPU de can bang voi MAINBOARD",
             )
             primary[cpu_idx] = candidate
@@ -977,10 +1447,12 @@ class OrchestratorAgent:
             return None
 
         budget_max = None
+        design_mode = False
         if isinstance(constraints, dict):
             raw = constraints.get("budget_max")
             if isinstance(raw, (int, float)) and raw > 0:
                 budget_max = float(raw)
+            design_mode = bool(constraints.get("design_mode"))
 
         ratio = 1.20
         if isinstance(budget_max, (int, float)):
@@ -988,6 +1460,10 @@ class OrchestratorAgent:
                 if budget_max <= threshold:
                     ratio = capped_ratio
                     break
+        
+        if design_mode:
+            ratio = max(ratio, 1.10)
+        
         return float(cpu_price) * ratio
 
     @staticmethod
@@ -1038,6 +1514,12 @@ class OrchestratorAgent:
         constraints: Dict[str, Optional[float]],
         context: Dict[str, object],
     ) -> List[ProductSuggestion]:
+        # SKIP rebalancing for gaming mode - we want the strongest GPU possible
+        # not a "balanced" CPU-GPU pair
+        gaming_mode = bool(constraints.get("gaming_mode"))
+        if gaming_mode:
+            return primary
+        
         cpu_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "CPU"), None)
         gpu_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "GPU"), None)
         if cpu_idx is None or gpu_idx is None:
@@ -1084,6 +1566,7 @@ class OrchestratorAgent:
                 continue
             if candidate_price is None or candidate_price <= 0:
                 continue
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
             primary[gpu_idx] = ProductSuggestion(
                 productId=str(doc.get("_id", "")),
                 categoryId=category_id,
@@ -1092,6 +1575,7 @@ class OrchestratorAgent:
                 price=int(candidate_price),
                 image=doc.get("image"),
                 url=doc.get("url"),
+                socket=candidate_socket,
                 reason="Can bang gia GPU voi CPU",
             )
             return primary
@@ -1130,6 +1614,7 @@ class OrchestratorAgent:
             tentative_total = current_total - (cpu_price or 0.0) + candidate_price
             if tentative_total > ceiling:
                 continue
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
             primary[cpu_idx] = ProductSuggestion(
                 productId=str(doc.get("_id", "")),
                 categoryId=category_id,
@@ -1138,6 +1623,7 @@ class OrchestratorAgent:
                 price=int(candidate_price),
                 image=doc.get("image"),
                 url=doc.get("url"),
+                socket=candidate_socket,
                 reason="Nang CPU de can bang voi GPU",
             )
             return primary
@@ -1200,6 +1686,7 @@ class OrchestratorAgent:
                     candidate_price = self._to_number(doc.get("price"))
                     if candidate_price is None or candidate_price <= 0 or candidate_price > cpu_cap:
                         continue
+                    candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                     primary[cpu_idx] = ProductSuggestion(
                         productId=str(doc.get("_id", "")),
                         categoryId=category_id,
@@ -1208,6 +1695,7 @@ class OrchestratorAgent:
                         price=int(candidate_price),
                         image=doc.get("image"),
                         url=doc.get("url"),
+                        socket=candidate_socket,
                         reason="Office >30M: gioi han overkill CPU",
                     )
                     break
@@ -1250,6 +1738,7 @@ class OrchestratorAgent:
                     candidate_price = self._to_number(doc.get("price"))
                     if candidate_price is None or candidate_price <= 0 or candidate_price > mb_cap:
                         continue
+                    candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                     primary[mb_idx] = ProductSuggestion(
                         productId=str(doc.get("_id", "")),
                         categoryId=category_id,
@@ -1258,6 +1747,7 @@ class OrchestratorAgent:
                         price=int(candidate_price),
                         image=doc.get("image"),
                         url=doc.get("url"),
+                        socket=candidate_socket,
                         reason="Office >30M: gioi han overkill MAINBOARD",
                     )
                     break
@@ -1369,14 +1859,27 @@ class OrchestratorAgent:
 
         selected_brand = self._extract_selected_brand(context)
         current_total = self._sum_product_prices(primary)
-        if current_total >= target_min:
-            return primary
 
         ceiling = target_max if isinstance(target_max, (int, float)) and target_max > 0 else budget_max
         if not isinstance(ceiling, (int, float)) or ceiling <= 0:
             ceiling = budget_max
 
-        preferred_upgrade_slots = ["RAM", "SSD", "MAINBOARD", "CPU", "PSU", "CASE", "COOLER"]
+        gaming_mode = bool(constraints.get("gaming_mode"))
+        design_mode = bool(constraints.get("design_mode"))
+        streaming_mode = bool(constraints.get("streaming_mode"))
+        if gaming_mode:
+            # For gaming, prioritize GPU upgrade first, allow going closer to budget_max
+            preferred_upgrade_slots = ["GPU", "CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+            # Allow lifting up to 95% of budget_max for gaming
+            ceiling = min(ceiling, budget_max * 0.95) if isinstance(budget_max, (int, float)) else ceiling
+        elif design_mode or streaming_mode:
+            # For design/streaming, prioritize balanced upgrades
+            preferred_upgrade_slots = ["GPU", "CPU", "RAM", "MAINBOARD", "SSD", "PSU", "CASE", "COOLER"]
+            ceiling = min(ceiling, budget_max * 0.95) if isinstance(budget_max, (int, float)) else ceiling
+        else:
+            preferred_upgrade_slots = ["CPU", "RAM", "SSD", "MAINBOARD", "PSU", "CASE", "COOLER", "GPU"]
+
+        # Phase 1: Lift to target_min
         improved = True
         while improved and current_total < target_min:
             improved = False
@@ -1404,11 +1907,12 @@ class OrchestratorAgent:
                     if peer_item is not None:
                         preferred_socket = self._extract_socket_from_product(peer_item)
                         preferred_platform = self._extract_platform_from_text(peer_item.name)
+                available_room = ceiling - (current_total - current_price)
                 docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
                     slot=slot,
-                    budget_max=float(budget_max),
+                    budget_max=float(available_room),
                     target_price=target_price,
-                    limit=24,
+                    limit=50,
                     exclude_product_ids=[current_item.product_id],
                     selected_brand=selected_brand,
                     preferred_socket=preferred_socket,
@@ -1440,9 +1944,16 @@ class OrchestratorAgent:
                             continue
 
                     tentative_total = current_total - current_price + candidate_price
-                    if tentative_total > float(ceiling) * 1.03:
+                    if tentative_total > float(ceiling) * 1.05: # Allow 5% buffer for lifting
                         continue
 
+                    # Special rule for storage: if we are lifting, always prefer SSD over HDD
+                    if slot == "SSD" and "HDD" in name.upper() and any(kw in name.upper() for kw in ("SSD", "NVME", "M.2")):
+                        pass # Valid SSD name match
+                    elif slot == "SSD" and "HDD" in name.upper():
+                        continue # Skip HDD for SSD slot during lifting
+
+                    candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                     candidate = ProductSuggestion(
                         productId=str(doc.get("_id", "")),
                         categoryId=category_id,
@@ -1451,7 +1962,8 @@ class OrchestratorAgent:
                         price=int(candidate_price),
                         image=doc.get("image"),
                         url=doc.get("url"),
-                        reason="Nang cap de dat muc gia muc tieu",
+                        socket=candidate_socket,
+                        reason="Nang cap de toi uu hieu nang cho gaming",
                     )
 
                     delta = candidate_price - current_price
@@ -1471,6 +1983,211 @@ class OrchestratorAgent:
                 )
                 current_total = self._sum_product_prices(primary)
                 improved = True
+
+        # Phase 2: Continue lifting closer to budget_max (95%)
+        aggressive_ceiling = budget_max * 0.95 if isinstance(budget_max, (int, float)) else ceiling
+        if current_total < aggressive_ceiling:
+            improved = True
+            while improved and current_total < aggressive_ceiling:
+                improved = False
+                best_upgrade = None
+                best_delta = 0.0
+
+                for slot in preferred_upgrade_slots:
+                    idx = next((i for i, item in enumerate(primary) if (item.slot or "").upper() == slot), None)
+                    if idx is None:
+                        continue
+
+                    current_item = primary[idx]
+                    current_price = self._to_number(current_item.price) or 0.0
+                    peer_item = None
+                    preferred_socket = None
+                    preferred_platform = None
+                    if slot == "MAINBOARD":
+                        peer_item = next((item for item in primary if (item.slot or "").upper() == "CPU"), None)
+                        if peer_item is not None:
+                            preferred_socket = self._extract_socket_from_product(peer_item)
+                            preferred_platform = self._extract_platform_from_text(peer_item.name)
+                    if slot == "CPU":
+                        peer_item = next((item for item in primary if (item.slot or "").upper() == "MAINBOARD"), None)
+                        if peer_item is not None:
+                            preferred_socket = self._extract_socket_from_product(peer_item)
+                            preferred_platform = self._extract_platform_from_text(peer_item.name)
+                    available_room = aggressive_ceiling - (current_total - current_price)
+                    target_price = available_room * 0.9  # Target high-end products within budget
+                    cpu_swap_mb = None  # Track cross-socket mainboard swap
+                    docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                        slot=slot,
+                        budget_max=float(available_room),
+                        target_price=target_price,
+                        limit=30,
+                        exclude_product_ids=[current_item.product_id],
+                        selected_brand=selected_brand,
+                        preferred_socket=preferred_socket,
+                        preferred_platform=preferred_platform,
+                    )
+
+                    # If slot is CPU and budget allows, also try cross-platform for better upgrade
+                    if slot == "CPU" and preferred_socket and available_room > 5_000_000:
+                        cross_docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                            slot=slot,
+                            budget_max=float(available_room),
+                            target_price=target_price,
+                            limit=30,
+                            exclude_product_ids=[current_item.product_id],
+                            selected_brand=selected_brand,
+                            preferred_socket=None,
+                            preferred_platform=None,
+                        )
+                        if cross_docs:
+                            # Filter out non-CPU products (e.g. coolers with 'CPU' in name)
+                            real_cpus = []
+                            for cd in cross_docs:
+                                cd_slot = self._infer_slot(
+                                    category_id=self._normalize_category_id(cd.get("categoryId")),
+                                    category_code=cd.get("categoryCode"),
+                                    name=self._sanitize_text(cd.get("name", "")),
+                                )
+                                if (cd_slot or "").upper() == "CPU":
+                                    real_cpus.append(cd)
+                            if real_cpus:
+                                # Pick the best cross-socket CPU candidate
+                                cross_best = max(real_cpus, key=lambda d: float(d.get("price", 0)))
+                                cross_price = self._to_number(cross_best.get("price"))
+                                if cross_price and cross_price > current_price:
+                                    cross_socket = OrchestratorAgent._extract_socket_from_raw(cross_best)
+                                    cross_name = self._sanitize_text(cross_best.get("name", ""))
+                                    # Find a mainboard compatible with this new CPU
+                                    mb_remaining = aggressive_ceiling - (current_total - current_price)
+                                    mb_docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                                        slot="MAINBOARD",
+                                        budget_max=float(mb_remaining),
+                                        target_price=mb_remaining * 0.5,
+                                        limit=10,
+                                        exclude_product_ids=[],
+                                        selected_brand=selected_brand,
+                                        preferred_socket=cross_socket,
+                                        preferred_platform=None,
+                                    )
+                                    for mbdoc in mb_docs:
+                                        mb_slot = self._infer_slot(
+                                            category_id=self._normalize_category_id(mbdoc.get("categoryId")),
+                                            category_code=mbdoc.get("categoryCode"),
+                                            name=self._sanitize_text(mbdoc.get("name", "")),
+                                        )
+                                        if (mb_slot or "").upper() != "MAINBOARD":
+                                            continue
+                                        mb_price = self._to_number(mbdoc.get("price"))
+                                        if not mb_price or mb_price <= 0:
+                                            continue
+                                        mb_tentative = current_total - current_price + cross_price
+                                        # Find current mainboard index to replace
+                                        mb_idx = next((i for i, item in enumerate(primary) if (item.slot or "").upper() == "MAINBOARD"), None)
+                                        if mb_idx is not None:
+                                            mb_current_price = self._to_number(primary[mb_idx].price) or 0
+                                            mb_tentative = mb_tentative - mb_current_price + mb_price
+                                        else:
+                                            mb_tentative = mb_tentative + mb_price
+                                        if mb_tentative > aggressive_ceiling * 1.03:
+                                            continue
+                                        cpu_swap_mb = (mbdoc, mb_price, mb_idx)
+                                        break
+                                    if cpu_swap_mb:
+                                        # Append cross-socket candidate to docs (don't overwrite)
+                                        docs = list(docs) + [cross_best]
+
+                    for doc in docs:
+                        category_id = self._normalize_category_id(doc.get("categoryId"))
+                        name = self._sanitize_text(doc.get("name", ""))
+                        normalized_slot = self._infer_slot(
+                            category_id=category_id,
+                            category_code=doc.get("categoryCode"),
+                            name=name,
+                        )
+                        if (normalized_slot or "").upper() != slot:
+                            continue
+                        if not self._matches_brand_constraint(selected_brand, normalized_slot, doc, name):
+                            continue
+                        if not self._meets_capacity_requirements(normalized_slot, name, constraints, raw=doc):
+                            continue
+
+                        candidate_price = self._to_number(doc.get("price"))
+                        if candidate_price is None or candidate_price <= current_price:
+                            continue
+
+                        if slot == "MAINBOARD":
+                            cpu_price = self._to_number(peer_item.price) if peer_item is not None else None
+                            if not self._is_mainboard_price_balanced(candidate_price, cpu_price, constraints):
+                                continue
+
+                        tentative_total = current_total - current_price + candidate_price
+                        if tentative_total > aggressive_ceiling * 1.03:
+                            continue
+
+                        candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
+                        candidate = ProductSuggestion(
+                            productId=str(doc.get("_id", "")),
+                            categoryId=category_id,
+                            slot=normalized_slot,
+                            name=name,
+                            price=int(candidate_price),
+                            image=doc.get("image"),
+                            url=doc.get("url"),
+                            socket=candidate_socket,
+                            reason="Nang cap de toi uu ngan sach",
+                        )
+
+                        delta = candidate_price - current_price
+                        if delta > best_delta:
+                            best_delta = delta
+                            best_upgrade = (idx, candidate, tentative_total)
+
+                if best_upgrade is not None:
+                    idx, candidate, tentative_total = best_upgrade
+                    swapped_slot = (primary[idx].slot or "").upper()
+                    primary[idx] = candidate
+                    # If CPU was upgraded to a different socket, swap mainboard too
+                    if swapped_slot == "CPU" and cpu_swap_mb:
+                        mbdoc, mb_price, mb_idx = cpu_swap_mb
+                        mb_name = self._sanitize_text(mbdoc.get("name", ""))
+                        mb_slot_inferred = self._infer_slot(
+                            category_id=self._normalize_category_id(mbdoc.get("categoryId")),
+                            category_code=mbdoc.get("categoryCode"),
+                            name=mb_name,
+                        )
+                        if mb_idx is not None:
+                            primary[mb_idx] = ProductSuggestion(
+                                productId=str(mbdoc.get("_id", "")),
+                                categoryId=self._normalize_category_id(mbdoc.get("categoryId")),
+                                slot=mb_slot_inferred,
+                                name=mb_name,
+                                price=int(mb_price),
+                                image=mbdoc.get("image"),
+                                url=mbdoc.get("url"),
+                                socket=OrchestratorAgent._extract_socket_from_raw(mbdoc),
+                                reason="Swap mainboard de tuong thich voi CPU moi",
+                            )
+                        else:
+                            primary.append(ProductSuggestion(
+                                productId=str(mbdoc.get("_id", "")),
+                                categoryId=self._normalize_category_id(mbdoc.get("categoryId")),
+                                slot=mb_slot_inferred,
+                                name=mb_name,
+                                price=int(mb_price),
+                                image=mbdoc.get("image"),
+                                url=mbdoc.get("url"),
+                                socket=OrchestratorAgent._extract_socket_from_raw(mbdoc),
+                                reason="Bo sung mainboard tuong thich voi CPU moi",
+                            ))
+                    primary = self._enforce_primary_cpu_mainboard_compatibility(
+                        primary,
+                        {
+                            slot: [item for item in primary if (item.slot or "").upper() == slot]
+                            for slot in {((item.slot or "").upper()) for item in primary if item.slot}
+                        },
+                    )
+                    current_total = self._sum_product_prices(primary)
+                    improved = True
 
         return primary
 
@@ -1494,18 +2211,103 @@ class OrchestratorAgent:
             by_slot.setdefault(slot, []).append(item)
 
         primary: List[ProductSuggestion] = []
-        ordered_slots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER", "GPU"]
+        budget_max = (constraints or {}).get("budget_max")
+        gaming_mode = bool((constraints or {}).get("gaming_mode"))
+        design_mode = bool((constraints or {}).get("design_mode"))
+        streaming_mode = bool((constraints or {}).get("streaming_mode"))
+        office_mode = bool((constraints or {}).get("office_mode"))
+        
+        # CRITICAL: Use slot priority based on use case
+        if gaming_mode:
+            ordered_slots = ["GPU", "CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+        elif design_mode:
+            # Design: GPU first (GPU acceleration), then CPU (multi-core), then RAM
+            ordered_slots = ["GPU", "CPU", "RAM", "MAINBOARD", "SSD", "PSU", "CASE", "COOLER"]
+        elif streaming_mode:
+            # Streaming: CPU first (encoding), then GPU (NVENC), then RAM
+            ordered_slots = ["CPU", "GPU", "RAM", "MAINBOARD", "SSD", "PSU", "CASE", "COOLER"]
+        elif office_mode:
+            ordered_slots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]  # GPU optional for office
+        else:
+            ordered_slots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER", "GPU"]
+        
         used_slots = set()
+        selected_cpu_item = None
+        selected_cpu_socket = None
+        selected_cpu_platform = None
+        
         for slot in ordered_slots:
             candidates = by_slot.get(slot, [])
             if not candidates:
                 continue
-            primary.append(candidates[0])
+            
+            # For MAINBOARD slot in gaming mode, filter by CPU socket if CPU already selected
+            if slot == "MAINBOARD" and selected_cpu_item is not None:
+                filtered_candidates = []
+                for c in candidates:
+                    if OrchestratorAgent._are_products_socket_compatible(selected_cpu_item, c):
+                        filtered_candidates.append(c)
+                if filtered_candidates:
+                    candidates = filtered_candidates
+                else:
+                    # No compatible mainboard - skip this slot, will be filled by supplement
+                    continue
+                    
+            if budget_max and budget_max > 0:
+                # Target price for this slot
+                target_ratio = OrchestratorAgent._target_ratio_for_slot(constraints or {}, slot)
+                target_price = float(budget_max) * target_ratio
+                
+                # For gaming/design/streaming: prioritize higher performance GPU
+                if slot == "GPU" and (gaming_mode or design_mode or streaming_mode):
+                    # Pick the most expensive GPU that fits within budget
+                    valid_candidates = [c for c in candidates if (OrchestratorAgent._to_number(c.price) or 0) <= budget_max * 0.7]
+                    if valid_candidates:
+                        best_candidate = max(valid_candidates, key=lambda c: OrchestratorAgent._to_number(c.price) or 0)
+                    else:
+                        best_candidate = max(candidates, key=lambda c: OrchestratorAgent._to_number(c.price) or 0)
+                else:
+                    # Original logic: pick candidate closest to target_price but not exceeding budget
+                    # But also prefer higher-end when within reasonable range
+                    valid_candidates = [c for c in candidates if (OrchestratorAgent._to_number(c.price) or 0) <= budget_max]
+                    if valid_candidates:
+                        # For CPU and MAINBOARD at higher budgets, prefer newer sockets
+                        if slot in ("CPU", "MAINBOARD") and budget_max >= 15_000_000:
+                            def _socket_score(item):
+                                s = (item.socket or "").upper()
+                                if not s:
+                                    return 0
+                                if "1700" in s or "LGA1700" in s:
+                                    return 3
+                                if "AM5" in s or s.startswith("AM"):
+                                    return 2
+                                if "1200" in s or "LGA1200" in s:
+                                    return 1
+                                return 0
+                            valid_candidates.sort(key=lambda c: (-_socket_score(c), OrchestratorAgent._to_number(c.price) or 0))
+                        else:
+                            valid_candidates.sort(key=lambda c: OrchestratorAgent._to_number(c.price) or 0)
+                        mid_idx = min(len(valid_candidates) // 2, 2)
+                        best_candidate = valid_candidates[mid_idx] if valid_candidates else candidates[0]
+                    else:
+                        best_candidate = min(candidates, key=lambda c: abs((OrchestratorAgent._to_number(c.price) or 0) - target_price))
+                primary.append(best_candidate)
+            else:
+                primary.append(candidates[0])
             used_slots.add(slot)
+            
+            # Track selected CPU for socket compatibility check with Mainboard
+            if slot == "CPU":
+                selected_cpu_item = best_candidate
+                selected_cpu_socket = OrchestratorAgent._extract_socket_from_product(best_candidate)
+                selected_cpu_platform = OrchestratorAgent._extract_platform_from_text(best_candidate.name)
 
         for item in products:
             slot = (item.slot or "").upper()
             if not slot or slot in used_slots:
+                continue
+            # Skip HDD unless user explicitly requested storage
+            if slot == "HDD":
                 continue
             primary.append(item)
             used_slots.add(slot)
@@ -1536,9 +2338,13 @@ class OrchestratorAgent:
             desired_ceiling = budget_max
 
         current_total = OrchestratorAgent._sum_product_prices(primary)
-        slot_order = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER", "GPU"]
-        if office_mode:
+        # Use gaming priority for upgrade order - GPU first for gaming builds
+        if gaming_mode:
+            slot_order = ["GPU", "CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+        elif office_mode:
             slot_order = ["RAM", "SSD", "PSU", "MAINBOARD", "CPU", "CASE", "COOLER", "GPU"]
+        else:
+            slot_order = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER", "GPU"]
 
         # If total already exceeds budget_max, try downgrading slot-by-slot first.
         if isinstance(budget_max, (int, float)) and budget_max > 0 and current_total > budget_max:
@@ -1899,18 +2705,33 @@ class OrchestratorAgent:
     def _are_products_socket_compatible(cpu: ProductSuggestion, mainboard: ProductSuggestion) -> bool:
         cpu_socket = OrchestratorAgent._extract_socket_from_product(cpu)
         mainboard_socket = OrchestratorAgent._extract_socket_from_product(mainboard)
+        
+        # If we have socket info for both, compare directly
         if cpu_socket and mainboard_socket:
             return cpu_socket == mainboard_socket
-
+        
+        # CRITICAL: If CPU has socket info but mainboard doesn't, 
+        # we cannot verify compatibility - return False (not compatible)
+        # This prevents incorrectly pairing i5-12400F (LGA1700) with H310M (unknown socket)
+        if cpu_socket and not mainboard_socket:
+            return False
+        
+        # Fallback to platform check (less reliable than socket)
         cpu_platform = OrchestratorAgent._extract_platform_from_text(cpu.name)
         mainboard_platform = OrchestratorAgent._extract_platform_from_text(mainboard.name)
         if cpu_platform and mainboard_platform and cpu_platform != mainboard_platform:
             return False
 
+        # If we still don't have enough info, assume compatible rather than reject
+        # This allows builds to proceed when socket data is missing from DB
         return True
 
     @staticmethod
     def _extract_socket_from_product(product: ProductSuggestion) -> Optional[str]:
+        # First try product.socket (extracted from DB)
+        if product.socket:
+            return product.socket
+        # Fallback to name
         name = product.name if isinstance(product.name, str) else ""
         return OrchestratorAgent._normalize_socket_value(name)
 
@@ -2086,7 +2907,7 @@ class OrchestratorAgent:
         office_mode = OrchestratorAgent._is_office_context(context)
         explicit_gpu_request = OrchestratorAgent._has_explicit_gpu_request(query)
         selected_brand = OrchestratorAgent._extract_selected_brand(context)
-        budget_constraints = OrchestratorAgent._extract_budget_constraints(context)
+        budget_constraints = OrchestratorAgent._extract_budget_constraints(context, query)
         enforce_budget_floor = OrchestratorAgent._should_enforce_budget_floor(context, query, budget_constraints)
         # Keep slot diversity first, then append additional options for the same remaining slots.
         allow_duplicate_fill = True
@@ -2129,6 +2950,7 @@ class OrchestratorAgent:
                 continue
 
             numeric_price = OrchestratorAgent._to_number(raw.get("price"))
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(raw)
 
             suggestion = ProductSuggestion(
                 productId=product_id,
@@ -2138,6 +2960,7 @@ class OrchestratorAgent:
                 price=int(numeric_price) if numeric_price is not None else raw.get("price"),
                 image=raw.get("image"),
                 url=raw.get("url") or ev.url,
+                socket=candidate_socket,
                 reason=OrchestratorAgent._sanitize_text(OrchestratorAgent._strip_html(ev.snippet)),
             )
             suggestions.append(suggestion)
@@ -2154,75 +2977,74 @@ class OrchestratorAgent:
             ):
                 filtered.append(suggestion)
 
+        # 1. Start with socket-compatible candidates or all suggestions if no constraints
         candidates = filtered if has_constraints and filtered else suggestions
-        if selected_slots:
-            missing_slot_candidates = [
-                item for item in candidates if (item.slot or "").upper() not in selected_slots
+
+        # 2. Filter by slot to ensure we have products for each category within budget
+        found_slots = {s.slot for s in candidates if s.slot}
+        final_filtered = []
+        
+        for slot in found_slots:
+            slot_items = [s for s in candidates if s.slot == slot]
+            if not slot_items:
+                continue
+
+            # A. Try strict budget caps
+            strict = [
+                s for s in slot_items 
+                if OrchestratorAgent._is_within_budget_constraints(
+                    OrchestratorAgent._to_number(s.price), s.slot, budget_constraints, enforce_slot_caps=False
+                )
             ]
-            if missing_slot_candidates:
-                candidates = missing_slot_candidates
+            
+            if strict:
+                # Rank and add top candidates
+                ranked = OrchestratorAgent._rank_suggestions(
+                    strict,
+                    low_budget_mode=low_budget_mode,
+                    has_core_selected=has_core_selected,
+                    allow_duplicate_fill=allow_duplicate_fill,
+                    office_mode=office_mode,
+                    cpu_igpu_by_product=cpu_igpu_by_product,
+                    gaming_mode=budget_constraints.get("gaming_mode", False),
+                )
+                final_filtered.extend(ranked[:5])
+            else:
+                # B. Fallback to relaxed budget caps
+                relaxed = [
+                    s for s in slot_items 
+                    if OrchestratorAgent._is_within_budget_constraints(
+                        OrchestratorAgent._to_number(s.price), s.slot, budget_constraints, enforce_slot_caps=False
+                    )
+                ]
+                if relaxed:
+                    ranked = OrchestratorAgent._rank_suggestions(
+                        relaxed,
+                        low_budget_mode=low_budget_mode,
+                        has_core_selected=has_core_selected,
+                        allow_duplicate_fill=allow_duplicate_fill,
+                        office_mode=office_mode,
+                        cpu_igpu_by_product=cpu_igpu_by_product,
+                        gaming_mode=budget_constraints.get("gaming_mode", False),
+                    )
+                    final_filtered.extend(ranked[:3])
 
-        if office_mode and not explicit_gpu_request:
-            candidates = [item for item in candidates if (item.slot or "").upper() != "GPU"]
-            candidates = OrchestratorAgent._prefer_office_igpu_cpu(candidates, cpu_igpu_by_product)
+        # 3. Final ranking and limiting
+        if not final_filtered:
+            # If still nothing, we return empty instead of leaking expensive parts
+            return []
 
-        strict_budgeted = [
-            item
-            for item in candidates
-            if OrchestratorAgent._is_within_budget_constraints(
-                price=OrchestratorAgent._to_number(item.price),
-                slot=item.slot,
-                constraints=budget_constraints,
-                enforce_slot_caps=True,
-            )
-            and OrchestratorAgent._meets_budget_floor(
-                price=OrchestratorAgent._to_number(item.price),
-                slot=item.slot,
-                constraints=budget_constraints,
-                enforce_budget_floor=enforce_budget_floor,
-            )
-        ]
-
-        if strict_budgeted:
-            ranked = OrchestratorAgent._rank_suggestions(
-                strict_budgeted,
-                low_budget_mode=low_budget_mode,
-                has_core_selected=has_core_selected,
-                allow_duplicate_fill=allow_duplicate_fill,
-                office_mode=office_mode,
-                cpu_igpu_by_product=cpu_igpu_by_product,
-            )
-            return OrchestratorAgent._limit_products_per_slot(ranked, MAX_PRODUCTS_PER_SLOT)[:MAX_PRODUCT_SUGGESTIONS]
-
-        relaxed_budgeted = [
-            item
-            for item in candidates
-            if OrchestratorAgent._is_within_budget_constraints(
-                price=OrchestratorAgent._to_number(item.price),
-                slot=item.slot,
-                constraints=budget_constraints,
-                enforce_slot_caps=False,
-            )
-            and OrchestratorAgent._meets_budget_floor(
-                price=OrchestratorAgent._to_number(item.price),
-                slot=item.slot,
-                constraints=budget_constraints,
-                enforce_budget_floor=enforce_budget_floor,
-            )
-        ]
-
-        if office_mode and not explicit_gpu_request:
-            relaxed_budgeted = OrchestratorAgent._prefer_office_igpu_cpu(relaxed_budgeted, cpu_igpu_by_product)
-
-        ranked = OrchestratorAgent._rank_suggestions(
-            relaxed_budgeted,
+        final_ranked = OrchestratorAgent._rank_suggestions(
+            final_filtered,
             low_budget_mode=low_budget_mode,
             has_core_selected=has_core_selected,
             allow_duplicate_fill=allow_duplicate_fill,
             office_mode=office_mode,
             cpu_igpu_by_product=cpu_igpu_by_product,
+            gaming_mode=budget_constraints.get("gaming_mode", False),
         )
-        return OrchestratorAgent._limit_products_per_slot(ranked, MAX_PRODUCTS_PER_SLOT)[:MAX_PRODUCT_SUGGESTIONS]
+        
+        return OrchestratorAgent._limit_products_per_slot(final_ranked, MAX_PRODUCTS_PER_SLOT)[:MAX_PRODUCT_SUGGESTIONS]
 
     def _retrieve_budget_fallback_evidences(self, context: Dict[str, object]) -> List[RetrievedEvidence]:
         budget_max = self._extract_budget_max(context)
@@ -2231,8 +3053,27 @@ class OrchestratorAgent:
 
         budget_text = context.get("budget") if isinstance(context.get("budget"), str) else ""
         brand_text = context.get("brand") if isinstance(context.get("brand"), str) else ""
+        
+        # Detect mode from context
+        gaming_mode = OrchestratorAgent._is_gaming_context(context)
+        design_mode = OrchestratorAgent._is_design_context(context)
+        streaming_mode = OrchestratorAgent._is_streaming_context(context)
+        office_mode = OrchestratorAgent._is_office_context(context)
 
-        fallback_query = "goi y linh kien CPU MAINBOARD RAM SSD PSU CASE COOLER can bang ngan sach"
+        # Build slot list based on mode
+        if gaming_mode:
+            slot_keywords = "CPU MAINBOARD RAM SSD PSU GPU CASE COOLER do hoa gaming hieu nang cao"
+        elif design_mode:
+            slot_keywords = "CPU MAINBOARD RAM SSD PSU GPU CASE COOLER do hoa thiet ke render video"
+        elif streaming_mode:
+            slot_keywords = "CPU MAINBOARD RAM SSD PSU GPU CASE COOLER streaming live stream"
+        elif office_mode:
+            slot_keywords = "CPU MAINBOARD RAM SSD PSU CASE COOLER van phong office"
+        else:
+            slot_keywords = "CPU MAINBOARD RAM SSD PSU GPU CASE COOLER"
+
+        fallback_query = f"goi y linh kien {slot_keywords} can bang ngan sach gia tot"
+        
         if budget_text:
             fallback_query = f"{fallback_query} | {budget_text}"
         if brand_text:
@@ -2246,7 +3087,7 @@ class OrchestratorAgent:
             AgentTask(
                 query=fallback_query,
                 context=fallback_context,
-                max_results=24,
+                max_results=60,
             )
         )
         if not observation.success:
@@ -2254,7 +3095,7 @@ class OrchestratorAgent:
         return observation.evidences
 
     def _build_budget_shortlist_products(self, context: Dict[str, object], query: Optional[str] = None) -> List[ProductSuggestion]:
-        constraints = self._extract_budget_constraints(context)
+        constraints = OrchestratorAgent._extract_budget_constraints(context, query)
         budget_max = constraints.get("budget_max")
         if budget_max is None:
             return []
@@ -2337,6 +3178,7 @@ class OrchestratorAgent:
             if not product_id:
                 continue
 
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
             shortlist.append(
                 ProductSuggestion(
                     productId=product_id,
@@ -2346,6 +3188,7 @@ class OrchestratorAgent:
                     price=int(numeric_price),
                     image=doc.get("image"),
                     url=doc.get("url"),
+                    socket=candidate_socket,
                     reason="Phu hop ngan sach da chon",
                 )
             )
@@ -2355,6 +3198,8 @@ class OrchestratorAgent:
         if office_mode and not explicit_gpu_request:
             shortlist = [item for item in shortlist if (item.slot or "").upper() != "GPU"]
             shortlist = OrchestratorAgent._prefer_office_igpu_cpu(shortlist, cpu_igpu_by_product)
+        
+        shortlist_slots = set((item.slot or "").upper() for item in shortlist)
 
         shortlist = self._supplement_capacity_required_slots(
             shortlist=shortlist,
@@ -2373,6 +3218,7 @@ class OrchestratorAgent:
             allow_duplicate_fill=True,
             office_mode=office_mode,
             cpu_igpu_by_product=cpu_igpu_by_product,
+            gaming_mode=constraints.get("gaming_mode", False),
         )
 
         max_per_slot = MAX_PRODUCTS_PER_SLOT
@@ -2457,6 +3303,7 @@ class OrchestratorAgent:
                 if not product_id or product_id in existing_ids:
                     continue
 
+                candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                 supplemented.append(
                     ProductSuggestion(
                         productId=product_id,
@@ -2466,6 +3313,7 @@ class OrchestratorAgent:
                         price=int(numeric_price),
                         image=doc.get("image"),
                         url=doc.get("url"),
+                        socket=candidate_socket,
                         reason="Bo sung theo nguong dung luong toi thieu",
                     )
                 )
@@ -2515,6 +3363,25 @@ class OrchestratorAgent:
 
     @staticmethod
     def _target_ratio_for_slot(constraints: Dict[str, Optional[float]], slot: str) -> float:
+        gaming_mode = bool(constraints.get("gaming_mode"))
+        design_mode = bool(constraints.get("design_mode"))
+        streaming_mode = bool(constraints.get("streaming_mode"))
+        low_budget = bool(constraints.get("low_budget"))
+        
+        # For design/streaming with low budget, fallback to gaming ratios
+        if low_budget and (design_mode or streaming_mode):
+            return GAMING_SLOT_CAP_RATIO.get(slot, 0.1)
+        
+        if gaming_mode:
+            budget_max = constraints.get("budget_max")
+            if isinstance(budget_max, (int, float)) and budget_max >= 16_000_000:
+                return HIGH_BUDGET_GAMING_TARGET_RATIO.get(slot, 0.1)
+            return GAMING_SLOT_CAP_RATIO.get(slot, 0.1)
+        if design_mode:
+            return DESIGN_SLOT_CAP_RATIO.get(slot, 0.1)
+        if streaming_mode:
+            return STREAMING_SLOT_CAP_RATIO.get(slot, 0.1)
+
         target_min = constraints.get("target_min")
         target_max = constraints.get("target_max")
         is_10_15_target = (
@@ -2550,17 +3417,13 @@ class OrchestratorAgent:
         compatibility: Dict[str, Optional[str]],
         preference: Optional[Dict[str, str]] = None,
     ) -> List[ProductSuggestion]:
-        constraints = self._extract_budget_constraints(context)
+        constraints = OrchestratorAgent._extract_budget_constraints(context)
         budget_max = constraints.get("budget_max")
         if budget_max is None:
             return []
 
-        remaining_budget = constraints.get("remaining_budget")
-        effective_budget = remaining_budget if isinstance(remaining_budget, (int, float)) else budget_max
-        price_pref = (preference or {}).get("price")
-        office_gpu_downgrade = slot.upper() == "GPU" and price_pref == "much_lower"
-        if office_gpu_downgrade and (effective_budget is None or effective_budget <= 0):
-            effective_budget = budget_max
+        # For replacement, always use full budget (not remaining)
+        effective_budget = float(budget_max) if isinstance(budget_max, (int, float)) else None
         if effective_budget is None or effective_budget <= 0:
             return []
 
@@ -2587,6 +3450,24 @@ class OrchestratorAgent:
 
         target_price_for_query = selected_slot_price
         query_budget_max = float(effective_budget)
+        price_pref = (preference or {}).get("price")
+        upgrade_intent = price_pref == "higher"
+        downgrade_intent = price_pref == "lower"
+        office_gpu_downgrade = slot.upper() == "GPU" and price_pref == "much_lower"
+        if upgrade_intent:
+            # For upgrade requests, use full budget and target higher price
+            query_budget_max = float(budget_max) if isinstance(budget_max, (int, float)) else query_budget_max
+            if selected_slot_price is not None:
+                target_price_for_query = selected_slot_price * 1.5  # Target 50% higher
+            else:
+                target_price_for_query = None
+        if downgrade_intent:
+            # For downgrade requests, target lower price
+            if selected_slot_price is not None:
+                query_budget_max = max(1.0, selected_slot_price * 0.95)
+                target_price_for_query = selected_slot_price * 0.7
+            else:
+                target_price_for_query = None
         if office_gpu_downgrade:
             target_price_for_query = None
             if selected_slot_price is not None:
@@ -2612,14 +3493,13 @@ class OrchestratorAgent:
         )
 
         constraints_for_filter = dict(constraints)
-        if office_gpu_downgrade:
-            current_remaining = constraints_for_filter.get("remaining_budget")
-            if (not isinstance(current_remaining, (int, float)) or current_remaining <= 0) and isinstance(budget_max, (int, float)):
-                constraints_for_filter["remaining_budget"] = float(budget_max)
+        constraints_for_filter["remaining_budget"] = float(budget_max) if isinstance(budget_max, (int, float)) else None
 
         def _to_products(candidates: List[Dict[str, Any]], reason_text: str) -> List[ProductSuggestion]:
             converted: List[ProductSuggestion] = []
             ssd_capacity_pref = (preference or {}).get("ssd_capacity")
+            passed_count = 0
+            rejected_count = 0
             for doc in candidates:
                 category_id = OrchestratorAgent._normalize_category_id(doc.get("categoryId"))
                 name = OrchestratorAgent._sanitize_text(doc.get("name", ""))
@@ -2664,11 +3544,16 @@ class OrchestratorAgent:
                     cpu_platform=cpu_platform,
                     mainboard_platform=mainboard_platform,
                 ):
+                    rejected_count += 1
                     continue
 
                 numeric_price = OrchestratorAgent._to_number(doc.get("price"))
                 if office_gpu_downgrade and selected_slot_price is not None:
                     if numeric_price is None or numeric_price >= selected_slot_price * 0.7:
+                        continue
+                if upgrade_intent and selected_slot_price is not None:
+                    if numeric_price is None or numeric_price <= selected_slot_price:
+                        rejected_count += 1
                         continue
                 if not OrchestratorAgent._is_within_budget_constraints(
                     price=numeric_price,
@@ -2676,10 +3561,14 @@ class OrchestratorAgent:
                     constraints=constraints_for_filter,
                     enforce_slot_caps=False,
                 ):
+                    rejected_count += 1
                     continue
                 if numeric_price is None or numeric_price <= 0:
                     continue
 
+                passed_count += 1
+
+                candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
                 converted.append(
                     ProductSuggestion(
                         productId=str(doc.get("_id", "")),
@@ -2689,6 +3578,7 @@ class OrchestratorAgent:
                         price=int(numeric_price),
                         image=doc.get("image"),
                         url=doc.get("url"),
+                        socket=candidate_socket,
                         reason=reason_text,
                     )
                 )
@@ -2697,6 +3587,8 @@ class OrchestratorAgent:
         reason = f"Goi y thay the {slot} cung tam gia"
         if selected_slot_price is None:
             reason = f"Goi y thay the {slot} trong ngan sach hien tai"
+        if upgrade_intent:
+            reason = f"Goi y {slot} manh hon trong ngan sach hien tai"
         if office_gpu_downgrade:
             reason = "Nhu cau van phong: uu tien giam manh GPU de toi uu tong chi phi"
         if slot.upper() == "SSD" and (preference or {}).get("ssd_capacity") == "higher":
@@ -2780,31 +3672,42 @@ class OrchestratorAgent:
         normalized = OrchestratorAgent._normalize_for_matching(query)
         preference: Dict[str, str] = {}
 
-        ssd_requested = any(keyword in normalized for keyword in REPLACEMENT_SLOT_KEYWORDS.get("SSD", []))
-        if not ssd_requested:
-            return preference
-
         higher_markers = (
             "cao hon",
             "lon hon",
             "nhieu hon",
+            "manh hon",
+            "tot hon",
+            "xong hon",
+            "nang cap",
             "tang dung luong",
             "dung luong cao",
             "capacity higher",
+            "higher end",
+            "performance",
         )
         lower_markers = (
             "thap hon",
             "nho hon",
             "it hon",
+            "re hon",
             "giam dung luong",
             "dung luong thap",
             "capacity lower",
+            "lower end",
         )
 
         if any(marker in normalized for marker in higher_markers):
-            preference["ssd_capacity"] = "higher"
+            preference["price"] = "higher"
         elif any(marker in normalized for marker in lower_markers):
-            preference["ssd_capacity"] = "lower"
+            preference["price"] = "lower"
+
+        ssd_requested = any(keyword in normalized for keyword in REPLACEMENT_SLOT_KEYWORDS.get("SSD", []))
+        if ssd_requested:
+            if any(marker in normalized for marker in higher_markers):
+                preference["ssd_capacity"] = "higher"
+            elif any(marker in normalized for marker in lower_markers):
+                preference["ssd_capacity"] = "lower"
 
         return preference
 
@@ -2875,6 +3778,10 @@ class OrchestratorAgent:
             capacity = OrchestratorAgent._extract_storage_capacity_gb(source, name)
             if capacity is None:
                 return False
+            budget_max = constraints.get("budget_max")
+            office_mode = bool(constraints.get("office_mode"))
+            if office_mode or (isinstance(budget_max, (int, float)) and budget_max <= 10_000_000):
+                return capacity >= 120.0
             return capacity > 500.0
 
         if slot_key == "RAM":
@@ -2942,11 +3849,17 @@ class OrchestratorAgent:
         allow_duplicate_fill: bool = True,
         office_mode: bool = False,
         cpu_igpu_by_product: Optional[Dict[str, bool]] = None,
+        gaming_mode: bool = False,
     ) -> List[ProductSuggestion]:
         if not suggestions:
             return []
 
-        priority_map = LOW_BUDGET_SLOT_PRIORITY if low_budget_mode else DEFAULT_SLOT_PRIORITY
+        if gaming_mode:
+            priority_map = GAMING_SLOT_PRIORITY
+        elif low_budget_mode:
+            priority_map = LOW_BUDGET_SLOT_PRIORITY
+        else:
+            priority_map = DEFAULT_SLOT_PRIORITY
 
         indexed = list(enumerate(suggestions))
         sorted_suggestions = [
@@ -3024,7 +3937,7 @@ class OrchestratorAgent:
         if self._is_component_specific_query(query):
             return products
 
-        budget_constraints = self._extract_budget_constraints(context)
+        budget_constraints = OrchestratorAgent._extract_budget_constraints(context, query)
         if budget_constraints.get("budget_max") is None:
             return products
 
@@ -3069,6 +3982,7 @@ class OrchestratorAgent:
             has_core_selected=any(slot in CORE_BUILD_SLOTS for slot in self._extract_selected_slots(context)),
             allow_duplicate_fill=True,
             office_mode=self._is_office_context(context),
+            gaming_mode=budget_constraints.get("gaming_mode", False),
         )
         return OrchestratorAgent._limit_products_per_slot(ranked, MAX_PRODUCTS_PER_SLOT)[:MAX_PRODUCT_SUGGESTIONS]
 
@@ -3340,7 +4254,7 @@ class OrchestratorAgent:
         if selected_gpu_price is None:
             return []
 
-        constraints = self._extract_budget_constraints(context)
+        constraints = OrchestratorAgent._extract_budget_constraints(context) # Inside should_enforce_budget_floor
         budget_max = constraints.get("budget_max")
         remaining_budget = constraints.get("remaining_budget")
         over_budget = (
@@ -3391,24 +4305,41 @@ class OrchestratorAgent:
         return budget_max is not None and budget_max <= 10_000_000
 
     @staticmethod
-    def _extract_budget_constraints(context: Optional[Dict[str, object]]) -> Dict[str, Optional[float]]:
+    def _extract_budget_constraints(context: Optional[Dict[str, object]], query: Optional[str] = None) -> Dict[str, Optional[float]]:
         if not isinstance(context, dict):
-            return {
-                "budget_max": None,
-                "budget_min": None,
-                "remaining_budget": None,
-                "low_budget": False,
-            }
+            context = {}
 
-        budget_max = OrchestratorAgent._extract_budget_max(context)
-        budget_min = OrchestratorAgent._extract_budget_min(context)
-        target_min, target_max = OrchestratorAgent._extract_budget_target_window(context, budget_min, budget_max)
-        selected_total = OrchestratorAgent._sum_selected_component_price(context)
+        # Merge query into a temporary context for extraction if budget is missing
+        temp_context = dict(context)
+        if query and not temp_context.get("budget"):
+            temp_context["budget"] = query
+
+        budget_max = OrchestratorAgent._extract_budget_max(temp_context)
+        budget_min = OrchestratorAgent._extract_budget_min(temp_context)
+        target_min, target_max = OrchestratorAgent._extract_budget_target_window(temp_context, budget_min, budget_max)
+        selected_total = OrchestratorAgent._sum_selected_component_price(temp_context)
         remaining_budget = None
         if budget_max is not None:
             remaining_budget = max(0.0, budget_max - selected_total)
 
         low_budget = budget_max is not None and budget_max <= 10_000_000
+        purpose = temp_context.get("purpose") or query or ""
+        is_gaming = isinstance(purpose, str) and any(kw in OrchestratorAgent._normalize_for_matching(purpose) for kw in ["gaming", "choi game", "game"])
+        is_design = OrchestratorAgent._is_design_context(temp_context, query)
+        is_streaming = OrchestratorAgent._is_streaming_context(temp_context, query)
+        is_office = OrchestratorAgent._is_office_context(temp_context, query)
+        
+        # Priority: gaming > streaming > design > office
+        if is_gaming:
+            is_design = False
+            is_streaming = False
+            is_office = False
+        elif is_streaming:
+            is_design = False
+            is_office = False
+        elif is_design:
+            is_office = False
+
         return {
             "budget_max": budget_max,
             "budget_min": budget_min,
@@ -3416,9 +4347,12 @@ class OrchestratorAgent:
             "target_max": target_max,
             "remaining_budget": remaining_budget,
             "low_budget": low_budget,
-            "office_mode": OrchestratorAgent._is_office_context(context),
+            "gaming_mode": is_gaming,
+            "design_mode": is_design,
+            "streaming_mode": is_streaming,
+            "office_mode": is_office,
             "office_overkill_mode": bool(
-                OrchestratorAgent._is_office_context(context)
+                is_office
                 and isinstance(budget_max, (int, float))
                 and budget_max > OFFICE_OVERKILL_BUDGET_THRESHOLD
             ),
@@ -3446,8 +4380,12 @@ class OrchestratorAgent:
         ):
             return (12_000_000.0, 13_000_000.0)
 
+        if budget_min is None or budget_min < (budget_max * 0.1):
+            # Single budget target: aim high (85% to 95%)
+            return (budget_max * 0.85, budget_max * 0.95)
+
         span = budget_max - budget_min
-        return (budget_min + span * 0.45, budget_min + span * 0.75)
+        return (budget_min + span * 0.5, budget_min + span * 0.9)
 
     @staticmethod
     def _extract_budget_min(context: Dict[str, object]) -> Optional[float]:
@@ -3521,28 +4459,8 @@ class OrchestratorAgent:
         return price >= (budget_min * ratio)
 
     @staticmethod
-    def _is_within_slot_target_cap(
-        price: Optional[float],
-        slot: Optional[str],
-        constraints: Dict[str, Optional[float]],
-    ) -> bool:
-        if price is None or price <= 0:
-            return False
-
-        slot_key = (slot or "").upper()
-        ratio = SLOT_HARD_CAP_RATIO.get(slot_key)
-        if ratio is None:
-            return True
-
-        budget_max = constraints.get("budget_max")
-        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
-            return True
-
-        return price <= (budget_max * ratio)
-
-    @staticmethod
     def _extract_budget_max(context: Dict[str, object]) -> Optional[float]:
-        for key in ("budgetMax", "budget_max"):
+        for key in ("budgetMax", "budget_max", "budgetExact", "budget_exact"):
             numeric = OrchestratorAgent._to_number(context.get(key))
             if numeric is not None and numeric > 0:
                 return numeric
@@ -3553,20 +4471,106 @@ class OrchestratorAgent:
 
         normalized = OrchestratorAgent._normalize_for_matching(budget_text)
 
-        if re.search(r"(duoi|<|under)\s*10", normalized) or re.search(r"10\s*trieu\s*do\s*lai", normalized):
-            return 10_000_000
-        if re.search(r"10\s*(-|den|toi|~)\s*15", normalized):
-            return 15_000_000
-        if re.search(r"15\s*(-|den|toi|~)\s*20", normalized):
-            return 20_000_000
-        if re.search(r"20\s*(-|den|toi|~)\s*30", normalized):
-            return 30_000_000
-        if re.search(r"30\s*(-|den|toi|~)\s*40", normalized):
-            return 40_000_000
-        if re.search(r"(tren|tu|hon)\s*30", normalized) or re.search(r">\s*30", normalized):
-            return 40_000_000
+        # 1. Match ranges like "10-15 triệu"
+        range_match = re.search(r"(\d+)\s*(-|den|toi|~)\s*(\d+)\s*(trieu|tr|m)\b", normalized)
+        if range_match:
+            return float(range_match.group(3)) * 1_000_000
+
+        # 2. Match single numbers like "16 triệu", "16tr", "16.5tr"
+        single_num_match = re.search(r"(\d+([.,]\d+)?)\s*(trieu|tr|m)\b", normalized)
+        if not single_num_match:
+            # Try matching without space: "16tr"
+            single_num_match = re.search(r"(\d+([.,]\d+)?)(trieu|tr|m)\b", normalized)
+
+        if single_num_match:
+            val = float(single_num_match.group(1).replace(",", "."))
+            return val * 1_000_000
 
         return None
+
+    @staticmethod
+    def _is_office_context(context: Optional[Dict[str, object]], query: Optional[str] = None) -> bool:
+        purpose = ""
+        if isinstance(context, dict):
+            purpose = str(context.get("purpose") or "").lower()
+        
+        normalized_query = OrchestratorAgent._normalize_for_matching(query or "")
+        normalized_purpose = OrchestratorAgent._normalize_for_matching(purpose)
+        
+        return any(kw in normalized_purpose for kw in OFFICE_PURPOSE_KEYWORDS) or \
+               any(kw in normalized_query for kw in OFFICE_PURPOSE_KEYWORDS)
+
+    @staticmethod
+    def _is_gaming_context(context: Optional[Dict[str, object]], query: Optional[str] = None) -> bool:
+        purpose_match = False
+        if isinstance(context, dict):
+            purpose = context.get("purpose")
+            if isinstance(purpose, str) and purpose.strip():
+                normalized_purpose = OrchestratorAgent._normalize_for_matching(purpose)
+                purpose_match = any(kw in normalized_purpose for kw in ("gaming", "game", "choi game", "gamer"))
+        
+        query_match = False
+        if isinstance(query, str) and query.strip():
+            normalized_query = OrchestratorAgent._normalize_for_matching(query)
+            query_match = any(kw in normalized_query for kw in ("gaming", "game", "choi game", "gamer"))
+
+        return purpose_match or query_match
+
+    @staticmethod
+    def _is_design_context(context: Optional[Dict[str, object]], query: Optional[str] = None) -> bool:
+        purpose_match = False
+        if isinstance(context, dict):
+            purpose = str(context.get("purpose") or "").lower()
+            normalized_purpose = OrchestratorAgent._normalize_for_matching(purpose)
+            purpose_match = any(kw in normalized_purpose for kw in DESIGN_PURPOSE_KEYWORDS)
+        
+        query_match = False
+        if isinstance(query, str) and query.strip():
+            normalized_query = OrchestratorAgent._normalize_for_matching(query)
+            query_match = any(kw in normalized_query for kw in DESIGN_PURPOSE_KEYWORDS)
+
+        return purpose_match or query_match
+
+    @staticmethod
+    def _is_streaming_context(context: Optional[Dict[str, object]], query: Optional[str] = None) -> bool:
+        purpose_match = False
+        if isinstance(context, dict):
+            purpose = str(context.get("purpose") or "").lower()
+            normalized_purpose = OrchestratorAgent._normalize_for_matching(purpose)
+            purpose_match = any(kw in normalized_purpose for kw in STREAMING_PURPOSE_KEYWORDS)
+        
+        query_match = False
+        if isinstance(query, str) and query.strip():
+            normalized_query = OrchestratorAgent._normalize_for_matching(query)
+            query_match = any(kw in normalized_query for kw in STREAMING_PURPOSE_KEYWORDS)
+
+        return purpose_match or query_match
+
+    @staticmethod
+    def _is_greeting_intent(query: str) -> bool:
+        normalized = OrchestratorAgent._normalize_for_matching(query)
+        greetings = (
+            "chao", "hi", "hello", "xin chao", "hey", "bonjour", "alo", "kaka", "haha", 
+            "ban la ai", "ai day", "tro ly gi", "ten la gi"
+        )
+        words = normalized.split()
+        if len(words) <= 3 and any(normalized.startswith(g) for g in greetings):
+            return True
+        return normalized in greetings
+
+    @staticmethod
+    def _is_clarification_needed(query: str, context: Dict[str, object]) -> bool:
+        normalized = OrchestratorAgent._normalize_for_matching(query)
+        build_keywords = ("build", "lap", "rap", "tu van", "goi y", "cau hinh", "mua", "can", "muon")
+        if any(kw in normalized for kw in build_keywords):
+            component_keywords = ("cpu", "gpu", "vga", "card", "main", "ram", "ssd", "nguon", "psu", "case", "tan nhiet", "cooler")
+            if any(kw in normalized for kw in component_keywords):
+                return False
+            has_budget = OrchestratorAgent._extract_budget_max(context) is not None
+            has_purpose = bool(context.get("purpose")) or OrchestratorAgent._is_gaming_context(context, query)
+            if len(normalized.split()) <= 4 and not has_budget and not has_purpose:
+                return True
+        return False
 
     @staticmethod
     def _sum_selected_component_price(context: Dict[str, object]) -> float:
@@ -3580,9 +4584,8 @@ class OrchestratorAgent:
                 continue
             price = OrchestratorAgent._to_number(item.get("price"))
             qty = OrchestratorAgent._to_number(item.get("quantity")) or 1.0
-            if price is None:
-                continue
-            total += max(0.0, price) * max(1.0, qty)
+            if price is not None:
+                total += max(0.0, price) * max(1.0, qty)
         return total
 
     @staticmethod
@@ -3592,33 +4595,62 @@ class OrchestratorAgent:
         constraints: Dict[str, Optional[float]],
         enforce_slot_caps: bool = True,
     ) -> bool:
-        budget_is_active = constraints.get("budget_max") is not None or constraints.get("remaining_budget") is not None
+        budget_max = constraints.get("budget_max")
+        remaining_budget = constraints.get("remaining_budget")
+        budget_is_active = budget_max is not None or remaining_budget is not None
+        
         if price is None:
             return not budget_is_active
-        if budget_is_active and price <= 0:
+        
+        if price <= 0:
             return False
 
-        remaining_budget = constraints.get("remaining_budget")
         if remaining_budget is not None and price > remaining_budget:
             return False
 
-        budget_max = constraints.get("budget_max")
         if budget_max is not None and price > budget_max:
             return False
 
-        if bool(constraints.get("office_overkill_mode")) and budget_max is not None and slot:
-            overkill_ratio = OFFICE_OVERKILL_SLOT_CAP_RATIO.get(slot.upper())
-            if overkill_ratio is not None and price > (budget_max * overkill_ratio):
-                return False
-
+        gaming_mode = bool(constraints.get("gaming_mode"))
+        design_mode = bool(constraints.get("design_mode"))
+        streaming_mode = bool(constraints.get("streaming_mode"))
+        office_mode = bool(constraints.get("office_mode"))
         low_budget = bool(constraints.get("low_budget"))
-        if low_budget and budget_max is not None and slot:
-            ratio_table = LOW_BUDGET_SLOT_CAP_RATIO if enforce_slot_caps else LOW_BUDGET_RELAXED_SLOT_CAP_RATIO
-            ratio = ratio_table.get(slot.upper())
+
+        if budget_max is not None and slot:
+            slot_key = slot.upper()
+            # For design/streaming with low budget (< 10M), fallback to gaming ratios
+            if low_budget and (design_mode or streaming_mode):
+                ratio_table = GAMING_SLOT_CAP_RATIO if enforce_slot_caps else GAMING_RELAXED_SLOT_CAP_RATIO
+            elif low_budget:
+                ratio_table = LOW_BUDGET_SLOT_CAP_RATIO if enforce_slot_caps else LOW_BUDGET_RELAXED_SLOT_CAP_RATIO
+            elif gaming_mode:
+                ratio_table = GAMING_SLOT_CAP_RATIO if enforce_slot_caps else GAMING_RELAXED_SLOT_CAP_RATIO
+            elif (design_mode or streaming_mode) and isinstance(budget_max, (int, float)) and budget_max >= 16_000_000:
+                # For design/streaming at high budgets, use gaming ratios for better GPU
+                ratio_table = GAMING_SLOT_CAP_RATIO if enforce_slot_caps else GAMING_RELAXED_SLOT_CAP_RATIO
+            elif design_mode:
+                ratio_table = DESIGN_SLOT_CAP_RATIO if enforce_slot_caps else DESIGN_RELAXED_SLOT_CAP_RATIO
+            elif streaming_mode:
+                ratio_table = STREAMING_SLOT_CAP_RATIO if enforce_slot_caps else STREAMING_RELAXED_SLOT_CAP_RATIO
+            elif office_mode:
+                ratio_table = OFFICE_SLOT_HARD_CAP_RATIO if enforce_slot_caps else DEFAULT_RELAXED_SLOT_CAP_RATIO
+            else:
+                ratio_table = DEFAULT_SLOT_CAP_RATIO if enforce_slot_caps else DEFAULT_RELAXED_SLOT_CAP_RATIO
+                
+            ratio = ratio_table.get(slot_key)
             if ratio is not None:
                 slot_cap = budget_max * ratio
-                if remaining_budget is not None:
-                    slot_cap = min(slot_cap, remaining_budget)
+                
+                # SPECIAL RULE: For budgets under 25M, secondary components should have absolute hard caps
+                if budget_max < 25_000_000:
+                    if slot_key == "CASE":
+                        slot_cap = min(slot_cap, 2_000_000)
+                    elif slot_key == "COOLER":
+                        slot_cap = min(slot_cap, 1_500_000)
+                    elif slot_key == "PSU":
+                        slot_cap = min(slot_cap, 2_500_000)
+
                 if price > slot_cap:
                     return False
 
@@ -3628,27 +4660,45 @@ class OrchestratorAgent:
     def _normalize_for_matching(value: str) -> str:
         normalized = unicodedata.normalize("NFD", value.lower())
         without_accents = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+        # Handle Vietnamese special characters
+        without_accents = without_accents.replace("đ", "d").replace("Đ", "d")
         return re.sub(r"\s+", " ", without_accents).strip()
 
     @staticmethod
     def _to_number(value: object) -> Optional[float]:
+        if value is None:
+            return None
         if isinstance(value, (int, float)):
             return float(value)
 
         if not isinstance(value, str):
             return None
 
+        # Standardize Vietnamese/International formatting
+        # Remove currency symbols and non-numeric chars except separators
         cleaned = re.sub(r"[^\d.,]", "", value)
         if not cleaned:
             return None
 
-        if re.fullmatch(r"\d+[.,]\d{1,2}", cleaned):
-            normalized = cleaned.replace(",", ".")
+        # Handle dot as thousand separator (e.g. 1.500.000) vs decimal (e.g. 1.5)
+        if "." in cleaned and "," in cleaned:
+            # Format like 1.500,00 -> 1500.00
+            normalized = cleaned.replace(".", "").replace(",", ".")
+        elif "," in cleaned and cleaned.count(",") > 1:
+            # Format like 1,500,000 -> 1500000
+            normalized = cleaned.replace(",", "")
+        elif "." in cleaned and cleaned.count(".") > 1:
+            # Format like 1.500.000 -> 1500000
+            normalized = cleaned.replace(".", "")
+        elif "," in cleaned and len(cleaned.split(",")[1]) == 3:
+             # Likely 1,500 -> 1500
+             normalized = cleaned.replace(",", "")
         else:
-            normalized = cleaned.replace(".", "").replace(",", "")
+            normalized = cleaned.replace(",", ".")
 
         try:
-            return float(normalized)
+            num = float(normalized)
+            return num if num >= 0 else None
         except ValueError:
             return None
 
@@ -3660,20 +4710,41 @@ class OrchestratorAgent:
 
     @staticmethod
     def _infer_slot(category_id: Optional[str], category_code: object, name: str) -> Optional[str]:
+        upper_name = name.upper()
+        
+        # 1. High-confidence name heuristics (Primary source of truth for messy DBs)
+        # We look for clear indicators of the product type in the name first.
+        heuristics = {
+            "COOLER": ["TẢN NHIỆT", "COOLER", "QUẠT CASE", "QUẠT CPU", "QUẠT TẢN NHIỆT", "FAN CASE"],
+            "CPU": ["CPU", "BỘ VI XỬ LÝ", "RYZEN", "CORE I3", "CORE I5", "CORE I7", "CORE I9", "7500F", "12400F"],
+            "GPU": ["VGA", "CARD MÀN HÌNH", "RTX", "GTX", "RADEON", "GT 710", "GT 1030"],
+            "MAINBOARD": ["MAINBOARD", "BO MẠCH CHỦ", "MOTHERBOARD", "B650", "A320", "B450", "Z790", "H610"],
+            "RAM": ["RAM", "BỘ NHỚ TRONG", "DDR4", "DDR5", "DESKTOP KINGSTON"],
+            "SSD": ["SSD", "M.2 NVME", "Ổ CỨNG SSD"],
+            "HDD": ["HDD", "Ổ CỨNG HDD", "SKYHAWK", "IRONWOLF"],
+            "PSU": ["PSU", "NGUỒN MÁY TÍNH"],
+            "CASE": ["THÙNG MÁY", "CASE"],
+        }
+        
+        for slot, keywords in heuristics.items():
+            if any(k in upper_name for k in keywords):
+                return slot
+
+        # 2. Category code (Secondary)
         if isinstance(category_code, str) and category_code.strip():
             normalized_code = category_code.strip().upper().replace("-", "").replace("_", "").replace(" ", "")
             category_aliases = {
                 "MAINBOARD": "MAINBOARD",
-                "MAINBBOARD": "MAINBOARD",
                 "MOTHERBOARD": "MAINBOARD",
                 "CPU": "CPU",
                 "GPU": "GPU",
                 "VGA": "GPU",
                 "RAM": "RAM",
                 "SSD": "SSD",
-                "HDD": "SSD",
-                "HARDDISK": "SSD",
-                "HARDDISK": "SSD",
+                "NVME": "SSD",
+                "M2": "SSD",
+                "HDD": "HDD",
+                "HARDDISK": "HDD",
                 "PSU": "PSU",
                 "CASE": "CASE",
                 "COOLER": "COOLER",
@@ -3682,26 +4753,10 @@ class OrchestratorAgent:
             if mapped:
                 return mapped
 
+        # 3. Category ID (Last resort)
         if category_id and category_id in CATEGORY_SLOT_BY_ID:
             return CATEGORY_SLOT_BY_ID[category_id]
 
-        upper_name = name.upper()
-        heuristics = {
-            "CPU": "CPU",
-            "MAINBOARD": "MAINBOARD",
-            "MOTHERBOARD": "MAINBOARD",
-            "RAM": "RAM",
-            "VGA": "GPU",
-            "GPU": "GPU",
-            "PSU": "PSU",
-            "SSD": "SSD",
-            "HDD": "SSD",
-            "CASE": "CASE",
-            "COOLER": "COOLER",
-        }
-        for key, slot in heuristics.items():
-            if key in upper_name:
-                return slot
         return None
 
     def _load_selected_products(self, context: Dict[str, object]) -> List[Dict[str, Any]]:
@@ -3782,22 +4837,47 @@ class OrchestratorAgent:
         candidate_socket = OrchestratorAgent._extract_socket_from_raw(raw)
 
         if normalized_slot == "MAINBOARD" and cpu_socket:
-            if candidate_socket and candidate_socket != cpu_socket:
-                return False
-        if normalized_slot == "MAINBOARD" and cpu_platform:
-            candidate_platform = OrchestratorAgent._extract_platform_from_raw(raw)
-            if candidate_platform and candidate_platform != cpu_platform:
-                return False
+            if candidate_socket:
+                if candidate_socket != cpu_socket:
+                    return False
+            else:
+                # Fallback to platform check if socket extraction failed
+                candidate_platform = OrchestratorAgent._extract_platform_from_raw(raw)
+                if candidate_platform and cpu_platform and candidate_platform != cpu_platform:
+                    return False
 
         if normalized_slot == "CPU" and mainboard_socket:
-            if candidate_socket and candidate_socket != mainboard_socket:
-                return False
-        if normalized_slot == "CPU" and mainboard_platform:
-            candidate_platform = OrchestratorAgent._extract_platform_from_raw(raw)
-            if candidate_platform and candidate_platform != mainboard_platform:
-                return False
+            if candidate_socket:
+                if candidate_socket != mainboard_socket:
+                    return False
+            else:
+                candidate_platform = OrchestratorAgent._extract_platform_from_raw(raw)
+                if candidate_platform and mainboard_platform and candidate_platform != mainboard_platform:
+                    return False
 
         return True
+
+    @staticmethod
+    def _is_cooler_compatible(cooler_raw: Dict[str, Any], cpu_socket: Optional[str]) -> bool:
+        """Check if cooler supports the CPU socket."""
+        if not cpu_socket:
+            return True
+        
+        # Get supported_sockets from cooler
+        supported_sockets = cooler_raw.get("supported_sockets")
+        if not supported_sockets:
+            return True  # Can't verify, assume compatible
+        
+        # Check each supported socket
+        if isinstance(supported_sockets, list):
+            for sock in supported_sockets:
+                if isinstance(sock, str):
+                    # Normalize the supported socket
+                    normalized = OrchestratorAgent._normalize_socket_value(sock)
+                    if normalized and normalized == cpu_socket:
+                        return True
+        
+        return False
 
     @staticmethod
     def _extract_platform_from_raw(raw: Dict[str, Any]) -> Optional[str]:
@@ -3822,13 +4902,24 @@ class OrchestratorAgent:
     @staticmethod
     def _extract_socket_from_raw(raw: Dict[str, Any]) -> Optional[str]:
         candidates: List[str] = []
+        
+        # Priority 1: Explicit socket field - this is most reliable in your DB
         socket_value = raw.get("socket")
         if isinstance(socket_value, str) and socket_value.strip():
-            candidates.append(socket_value)
+            # Normalize directly from socket field (e.g., "1700", "1151-v2", "AM5")
+            normalized = OrchestratorAgent._normalize_socket_value(socket_value.strip())
+            if normalized:
+                return normalized
+        
+        # Priority 2: Direct name field
+        name = raw.get("name")
+        if isinstance(name, str) and name.strip():
+            candidates.append(name)
 
+        # Priority 3: Specs dictionary - check Socket key (case sensitive)
         specs = raw.get("specs_raw") or raw.get("specsRaw")
         if isinstance(specs, dict):
-            for key in ("Socket", "socket", "SOCKET"):
+            for key in ("Socket",):
                 value = specs.get(key)
                 if isinstance(value, str) and value.strip():
                     candidates.append(value)
@@ -3837,6 +4928,44 @@ class OrchestratorAgent:
             normalized = OrchestratorAgent._normalize_socket_value(value)
             if normalized:
                 return normalized
+        
+        # Fallback: Try to infer socket from chipset (for mainboards without explicit socket in name)
+        # Check both "chipset" (top-level) and "specs_raw.Chipset"
+        chipset = raw.get("chipset")
+        if not isinstance(chipset, str) or not chipset.strip():
+            if isinstance(specs, dict):
+                chipset = specs.get("Chipset")  # Note: uppercase C in your DB
+        
+        if isinstance(chipset, str) and chipset.strip():
+            socket_from_chipset = OrchestratorAgent._socket_from_chipset(chipset.strip().upper())
+            if socket_from_chipset:
+                return socket_from_chipset
+        
+        return None
+
+    @staticmethod
+    def _socket_from_chipset(chipset: str) -> Optional[str]:
+        """Map chipset to socket - for mainboards without explicit socket in name."""
+        # Intel LGA1700 chipsets (12th/13th/14th gen)
+        if chipset in {"H610", "H670", "H770", "B660", "B760", "B760M", "B840", "B850", "B860", "Z690", "Z790", "Z890"}:
+            return "LGA1700"
+        # Intel LGA1200 (10th/11th gen)
+        if chipset in {"H410", "H470", "H570", "B460", "B560", "Z490", "Z590"}:
+            return "LGA1200"
+        # Intel LGA1151 (8th/9th gen)
+        if chipset in {"H310", "H510", "B360", "B365", "H370", "Z370", "Z390", "C232"}:
+            return "LGA1151"
+        # Intel LGA1851 (Arrow Lake)
+        if chipset in {"B850", "B860", "Z890"}:
+            return "LGA1851"
+        
+        # AMD AM5 (Ryzen 7000 series)
+        if chipset in {"A620", "B650", "B650E", "X670", "X670E", "X870", "X870E"}:
+            return "AM5"
+        # AMD AM4 (Ryzen 3000/5000 series)
+        if chipset in {"A320", "A520", "B350", "B450", "B550", "X370", "X470", "X570"}:
+            return "AM4"
+        
         return None
 
     @staticmethod
@@ -3845,17 +4974,28 @@ class OrchestratorAgent:
             return None
 
         text = value.upper()
+        
+        # AM4, AM5 patterns
         am_match = re.search(r"AM\d+", text)
         if am_match:
-            return am_match.group(0)
+            return am_match.group(0)  # Returns "AM4", "AM5", etc.
 
-        lga_match = re.search(r"LGA\s*(\d{3,4})", text)
+        # LGA pattern: "LGA1700", "FCLGA1700", "Intel LGA 1700"
+        lga_match = re.search(r"(LGA|INTEL\s+LGA)\s*(\d{3,4})", text, re.IGNORECASE)
         if lga_match:
-            return lga_match.group(1)
-
-        num_match = re.search(r"\b\d{4}\b", text)
-        if num_match:
-            return num_match.group(0)
+            return f"LGA{lga_match.group(2)}"
+        
+        # Also check "FCLGA1700" style
+        fclga_match = re.search(r"FC(LGA\s*\d{3,4})", text, re.IGNORECASE)
+        if fclga_match:
+            return fclga_match.group(1).replace(" ", "")
+        
+        # Check for bare number like "1700", "1151-v2"
+        bare_num_match = re.search(r"(\d{4})", text)
+        if bare_num_match:
+            num = bare_num_match.group(1)
+            if num in {"1700", "1200", "1151", "1150", "1851"}:
+                return f"LGA{num}"
 
         return None
 
@@ -3913,3 +5053,387 @@ class OrchestratorAgent:
             previous_blank = is_blank
 
         return "\n".join(compacted).strip()
+
+    def _upgrade_gaming_gpu(
+        self,
+        primary: List[ProductSuggestion],
+        constraints: Dict[str, Optional[float]],
+        context: Dict[str, object],
+        all_products: List[ProductSuggestion],
+    ) -> List[ProductSuggestion]:
+        """Ensure gaming builds have a strong GPU. Upgrade if current GPU is too weak."""
+        gpu_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "GPU"), None)
+        if gpu_idx is None:
+            # No GPU in build - need to add one for gaming
+            return self._ensure_required_primary_slots(primary, constraints, context)
+        
+        current_gpu = primary[gpu_idx]
+        current_gpu_price = self._to_number(current_gpu.price) or 0.0
+        budget_max = constraints.get("budget_max")
+        
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
+            return primary
+        
+        # For gaming, GPU should be at least 40% of budget for decent performance
+        min_gaming_gpu_price = budget_max * 0.40
+        if current_gpu_price >= min_gaming_gpu_price:
+            return primary  # GPU is already strong enough
+        
+        # Try to find a stronger GPU within budget
+        current_total = self._sum_product_prices(primary)
+        
+        # Reserve budget for COOLER (required for gaming) if not already present
+        has_cooler = any((item.slot or "").upper() == "COOLER" for item in primary)
+        cooler_reserve = 0.0 if has_cooler else 500_000.0  # Reserve 500k for cooler
+        
+        remaining_for_upgrade = budget_max - (current_total - current_gpu_price) - cooler_reserve
+        
+        selected_brand = self._extract_selected_brand(context)
+        
+        # Get better GPU options
+        better_gpus = self.db_agent.mongo_service.get_alternative_products_for_slot(
+            slot="GPU",
+            budget_max=float(budget_max),
+            target_price=float(min_gaming_gpu_price),
+            limit=30,
+            exclude_product_ids=[current_gpu.product_id],
+            selected_brand=selected_brand,
+        )
+        
+        # Find a better GPU that fits in remaining budget
+        for doc in better_gpus:
+            category_id = self._normalize_category_id(doc.get("categoryId"))
+            name = self._sanitize_text(doc.get("name", ""))
+            slot = self._infer_slot(category_id=category_id, category_code=doc.get("categoryCode"), name=name)
+            if (slot or "").upper() != "GPU":
+                continue
+            
+            candidate_price = self._to_number(doc.get("price"))
+            if candidate_price is None or candidate_price <= 0:
+                continue
+            
+            # Check if we can afford this GPU (with cooler reserve)
+            tentative_total = current_total - current_gpu_price + candidate_price
+            max_allowed = budget_max * 1.03 - cooler_reserve
+            if tentative_total > max_allowed:
+                continue
+            
+            primary[gpu_idx] = ProductSuggestion(
+                productId=str(doc.get("_id", "")),
+                categoryId=category_id,
+                slot="GPU",
+                name=name,
+                price=int(candidate_price),
+                image=doc.get("image"),
+                url=doc.get("url"),
+                reason="Nang cap GPU manh hon cho gaming",
+            )
+            return primary
+        
+        return primary
+
+    def _ensure_office_igpu(
+        self,
+        primary: List[ProductSuggestion],
+        constraints: Dict[str, Optional[float]],
+        context: Dict[str, object],
+    ) -> List[ProductSuggestion]:
+        """Ensure office builds use CPU with integrated graphics (igpu) to save cost."""
+        cpu_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "CPU"), None)
+        if cpu_idx is None:
+            return primary
+        
+        cpu_item = primary[cpu_idx]
+        
+        # Check if CPU already has igpu
+        if self._has_integrated_graphics_from_raw(cpu_item.product_id):
+            return primary
+        
+        # CPU doesn't have igpu - need to find a replacement
+        budget_max = constraints.get("budget_max")
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
+            return primary
+        
+        selected_brand = self._extract_selected_brand(context)
+        
+        # Get CPU with igpu
+        mainboard_item = next((item for item in primary if (item.slot or "").upper() == "MAINBOARD"), None)
+        preferred_socket = self._extract_socket_from_product(mainboard_item) if mainboard_item else None
+        preferred_platform = self._extract_platform_from_text(mainboard_item.name) if mainboard_item else None
+        
+        current_total = self._sum_product_prices(primary)
+        cpu_price = self._to_number(cpu_item.price) or 0.0
+        
+        cpus_with_igpu = self.db_agent.mongo_service.get_alternative_products_for_slot(
+            slot="CPU",
+            budget_max=float(budget_max),
+            target_price=float(cpu_price * 1.1) if cpu_price > 0 else None,
+            limit=40,
+            exclude_product_ids=[cpu_item.product_id],
+            selected_brand=selected_brand,
+            preferred_socket=preferred_socket,
+            preferred_platform=preferred_platform,
+        )
+        
+        for doc in cpus_with_igpu:
+            category_id = self._normalize_category_id(doc.get("categoryId"))
+            name = self._sanitize_text(doc.get("name", ""))
+            slot = self._infer_slot(category_id=category_id, category_code=doc.get("categoryCode"), name=name)
+            if (slot or "").upper() != "CPU":
+                continue
+            
+            # Check if this CPU has igpu
+            if not self._has_integrated_graphics_from_raw_doc(doc):
+                continue
+            
+            # Check compatibility with mainboard
+            if mainboard_item:
+                if not self._is_socket_compatible(
+                    slot="CPU",
+                    raw=doc,
+                    cpu_socket=None,
+                    mainboard_socket=preferred_socket,
+                    cpu_platform=None,
+                    mainboard_platform=preferred_platform,
+                ):
+                    continue
+            
+            candidate_price = self._to_number(doc.get("price"))
+            if candidate_price is None or candidate_price <= 0:
+                continue
+            
+            tentative_total = current_total - cpu_price + candidate_price
+            if tentative_total > budget_max * 1.05:
+                continue
+            
+            candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
+            primary[cpu_idx] = ProductSuggestion(
+                productId=str(doc.get("_id", "")),
+                categoryId=category_id,
+                slot="CPU",
+                name=name,
+                price=int(candidate_price),
+                image=doc.get("image"),
+                url=doc.get("url"),
+                socket=candidate_socket,
+                reason="Chon CPU co igpu cho van phong tiet kiem",
+            )
+            return primary
+        
+        return primary
+
+    def _final_compatibility_check(
+        self,
+        primary: List[ProductSuggestion],
+        constraints: Dict[str, Optional[float]],
+        context: Dict[str, object],
+    ) -> List[ProductSuggestion]:
+        """Final check to ensure CPU-Mainboard compatibility. Replace if incompatible."""
+        cpu_item = next((item for item in primary if (item.slot or "").upper() == "CPU"), None)
+        mb_item = next((item for item in primary if (item.slot or "").upper() == "MAINBOARD"), None)
+        
+        if not cpu_item or not mb_item:
+            return primary
+        
+        # Check if they're already compatible
+        if OrchestratorAgent._are_products_socket_compatible(cpu_item, mb_item):
+            return primary
+        
+        # They're not compatible - need to replace one
+        budget_max = constraints.get("budget_max")
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
+            return primary
+        
+        # Get CPU socket
+        cpu_socket = self._extract_socket_from_product(cpu_item)
+        
+        # Try to find a compatible mainboard
+        selected_brand = self._extract_selected_brand(context)
+        cpu_platform = self._extract_platform_from_text(cpu_item.name)
+        
+        compatible_mbs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+            slot="MAINBOARD",
+            budget_max=float(budget_max),
+            target_price=float(self._to_number(mb_item.price) or 0) * 1.2 if mb_item.price else None,
+            limit=30,
+            exclude_product_ids=[mb_item.product_id],
+            selected_brand=selected_brand,
+            preferred_socket=cpu_socket,
+            preferred_platform=cpu_platform,
+        )
+        
+        current_total = self._sum_product_prices(primary)
+        
+        for doc in compatible_mbs:
+            category_id = self._normalize_category_id(doc.get("categoryId"))
+            name = self._sanitize_text(doc.get("name", ""))
+            slot = self._infer_slot(category_id=category_id, category_code=doc.get("categoryCode"), name=name)
+            if (slot or "").upper() != "MAINBOARD":
+                continue
+            
+            # Check socket compatibility
+            candidate_socket = self._extract_socket_from_raw(doc)
+            if cpu_socket and candidate_socket and candidate_socket != cpu_socket:
+                continue
+            
+            candidate_price = self._to_number(doc.get("price"))
+            if candidate_price is None or candidate_price <= 0:
+                continue
+            
+            # Check budget
+            tentative_total = current_total - (self._to_number(mb_item.price) or 0) + candidate_price
+            if tentative_total > budget_max * 1.05:
+                continue
+            
+            # Replace incompatible mainboard
+            mb_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "MAINBOARD"), None)
+            if mb_idx is not None:
+                candidate_socket = OrchestratorAgent._extract_socket_from_raw(doc)
+                primary[mb_idx] = ProductSuggestion(
+                    productId=str(doc.get("_id", "")),
+                    categoryId=category_id,
+                    slot="MAINBOARD",
+                    name=name,
+                    price=int(candidate_price),
+                    image=doc.get("image"),
+                    url=doc.get("url"),
+                    socket=candidate_socket,
+                    reason="Thay the mainboard khong tuong thich voi CPU",
+                )
+                break
+        
+        # If no compatible mainboard found, try to find a compatible CPU instead
+        if not any((item.slot or "").upper() == "MAINBOARD" for item in primary if item.product_id != mb_item.product_id):
+            # Get mainboard socket from DB
+            mb_socket = self._extract_socket_from_raw({"socket": mb_item.name, "specs_raw": {"chipset": "H310"}})
+            
+            # Try to find CPU that matches the mainboard
+            mb_platform = self._extract_platform_from_text(mb_item.name)
+            
+            compatible_cpus = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                slot="CPU",
+                budget_max=float(budget_max),
+                target_price=float(self._to_number(cpu_item.price) or 0) * 1.1 if cpu_item.price else None,
+                limit=30,
+                exclude_product_ids=[cpu_item.product_id],
+                selected_brand=selected_brand,
+                preferred_socket=mb_socket,
+                preferred_platform=mb_platform,
+            )
+            
+            for doc in compatible_cpus:
+                category_id = self._normalize_category_id(doc.get("categoryId"))
+                name = self._sanitize_text(doc.get("name", ""))
+                slot = self._infer_slot(category_id=category_id, category_code=doc.get("categoryCode"), name=name)
+                if (slot or "").upper() != "CPU":
+                    continue
+                
+                candidate_socket = self._extract_socket_from_raw(doc)
+                if mb_socket and candidate_socket and candidate_socket != mb_socket:
+                    continue
+                
+                candidate_price = self._to_number(doc.get("price"))
+                if candidate_price is None or candidate_price <= 0:
+                    continue
+                
+                tentative_total = current_total - (self._to_number(cpu_item.price) or 0) + candidate_price
+                if tentative_total > budget_max * 1.05:
+                    continue
+                
+                cpu_idx = next((idx for idx, item in enumerate(primary) if (item.slot or "").upper() == "CPU"), None)
+                if cpu_idx is not None:
+                    primary[cpu_idx] = ProductSuggestion(
+                        productId=str(doc.get("_id", "")),
+                        categoryId=category_id,
+                        slot="CPU",
+                        name=name,
+                        price=int(candidate_price),
+                        image=doc.get("image"),
+                        url=doc.get("url"),
+                        socket=candidate_socket,
+                        reason=f"Thay CPU de tuong thich voi mainboard {mb_item.name}",
+                    )
+                    break
+        
+        return primary
+
+    def _enforce_budget_cap(
+        self,
+        primary: List[ProductSuggestion],
+        constraints: Dict[str, Optional[float]],
+        context: Dict[str, object],
+        all_products: List[ProductSuggestion],
+    ) -> List[ProductSuggestion]:
+        """Downsize components if total exceeds budget cap."""
+        budget_max = constraints.get("budget_max")
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
+            return primary
+
+        current_total = self._sum_product_prices(primary)
+        hard_cap = budget_max * 1.07  # 7% tolerance
+        if current_total <= hard_cap:
+            return primary
+
+        # Target: get under hard_cap but stay above 90% of budget
+        target_floor = budget_max * 0.90
+
+        # Build lookup from all_products
+        by_slot: Dict[str, List[ProductSuggestion]] = {}
+        for item in all_products:
+            slot = (item.slot or "").upper()
+            if slot:
+                by_slot.setdefault(slot, []).append(item)
+
+        # Try to downsize most expensive slots first (GPU, CPU, then others)
+        downgrade_order = ["GPU", "CPU", "RAM", "SSD", "MAINBOARD", "PSU", "CASE", "COOLER"]
+        
+        for slot in downgrade_order:
+            if current_total <= hard_cap:
+                break
+            
+            idx = next((i for i, item in enumerate(primary) if (item.slot or "").upper() == slot), None)
+            if idx is None:
+                continue
+            
+            current_item = primary[idx]
+            current_price = self._to_number(current_item.price) or 0.0
+            
+            # Find cheaper alternatives
+            candidates = by_slot.get(slot, [])
+            cheaper = [c for c in candidates if (self._to_number(c.price) or 0) < current_price and c.product_id != current_item.product_id]
+            cheaper.sort(key=lambda c: -(self._to_number(c.price) or 0))  # Sort descending to pick closest cheaper option
+            
+            for candidate in cheaper:
+                candidate_price = self._to_number(candidate.price) or 0.0
+                new_total = current_total - current_price + candidate_price
+                if new_total <= hard_cap and new_total >= target_floor:
+                    primary[idx] = candidate
+                    current_total = new_total
+                    break
+
+        return primary
+
+    def _has_integrated_graphics_from_raw(self, product_id: str) -> bool:
+        """Check if a product has integrated graphics by looking up in DB."""
+        if not product_id:
+            return False
+        try:
+            docs = self.db_agent.mongo_service.get_products_by_ids([product_id])
+            if docs:
+                return self._has_integrated_graphics(docs[0], "")
+        except Exception:
+            pass
+        return False
+
+    def _has_integrated_graphics_from_raw_doc(self, doc: Dict[str, Any]) -> bool:
+        """Check if a raw document has integrated graphics."""
+        has_igpu = doc.get("has_igpu")
+        if isinstance(has_igpu, bool):
+            return has_igpu
+        
+        igpu_name = doc.get("igpu_name")
+        if igpu_name and isinstance(igpu_name, str) and igpu_name.strip():
+            return True
+        
+        name = doc.get("name", "")
+        return self._has_integrated_graphics(doc, name)

@@ -45,6 +45,11 @@ class MongoSearchService:
         self.text_weight = text_weight
         self.vector_weight = vector_weight
 
+        # Singleton MongoClient — reuse connection pool across all queries
+        # instead of paying TCP/TLS handshake cost on every call.
+        self._client = MongoClient(mongodb_uri) if mongodb_uri else None
+        self._coll = self._client[database][collection] if self._client else None
+
     def hybrid_search(
         self,
         query: str,
@@ -54,11 +59,10 @@ class MongoSearchService:
         selected_brand: Optional[str] = None,
         preferred_slots: Optional[List[str]] = None,
     ) -> List[RetrievedEvidence]:
-        if not self.mongodb_uri:
+        if self._coll is None:
             return []
 
-        client = MongoClient(self.mongodb_uri)
-        coll = client[self.database][self.collection]
+        coll = self._coll
 
         text_pipeline: List[Dict[str, Any]] = [
             {
@@ -191,7 +195,7 @@ class MongoSearchService:
         )
 
     def get_products_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
-        if not self.mongodb_uri or not ids:
+        if self._coll is None or not ids:
             return []
 
         object_ids: List[Any] = []
@@ -206,8 +210,7 @@ class MongoSearchService:
         if not object_ids:
             return []
 
-        client = MongoClient(self.mongodb_uri)
-        coll = client[self.database][self.collection]
+        coll = self._coll
         return list(
             coll.find(
                 {"_id": {"$in": object_ids}},
@@ -217,6 +220,23 @@ class MongoSearchService:
                     "categoryId": 1,
                     "socket": 1,
                     "specs_raw": 1,
+                    # -- Compatibility checker fields --
+                    # PSU validation
+                    "tdp_w": 1,
+                    "recommended_psu_w": 1,
+                    "wattage_w": 1,
+                    # RAM type match
+                    "ram_type": 1,
+                    # iGPU safety
+                    "has_igpu": 1,
+                    # M.2 slot count
+                    "m2_slots": 1,
+                    "interface": 1,
+                    "form_factor": 1,
+                    # Form factor match
+                    "case_type": 1,
+                    # Cooler socket
+                    "supported_sockets": 1,
                 },
             )
         )
@@ -230,13 +250,12 @@ class MongoSearchService:
         max_per_item_ratio: float = 0.5,
         selected_brand: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        if not self.mongodb_uri or not slot_order or budget_max <= 0:
+        if self._coll is None or not slot_order or budget_max <= 0:
             return []
 
         max_item_price = max(1.0, min(budget_max, budget_max * max_per_item_ratio))
 
-        client = MongoClient(self.mongodb_uri)
-        coll = client[self.database][self.collection]
+        coll = self._coll
 
         slot_buckets: List[List[Dict[str, Any]]] = []
         seen = set()
@@ -272,13 +291,15 @@ class MongoSearchService:
 
             # Also sample higher-priced options within the same slot to avoid always falling into cheapest-only bundles.
             high_query: Dict[str, Any] = dict(query)
-            high_ratio = 0.55
-            if slot_upper == "CPU":
-                high_ratio = 0.70
+            high_ratio = 0.85
+            if slot_upper == "GPU":
+                high_ratio = 0.95
+            elif slot_upper == "CPU":
+                high_ratio = 0.85
             elif slot_upper == "MAINBOARD":
-                high_ratio = 0.55
+                high_ratio = 0.75
             elif slot_upper in {"RAM", "SSD", "PSU", "CASE", "COOLER"}:
-                high_ratio = 0.30
+                high_ratio = 0.50
             high_price_ceiling = max(1.0, max_item_price * high_ratio)
             if isinstance(high_query.get("price"), dict):
                 updated_price = dict(high_query.get("price", {}))
@@ -386,18 +407,38 @@ class MongoSearchService:
         preferred_socket: Optional[str] = None,
         preferred_platform: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        if not self.mongodb_uri or not slot or budget_max <= 0:
+        if self._coll is None or not slot or budget_max <= 0:
             return []
 
         slot_upper = slot.upper()
         category_id = self._CATEGORY_BY_SLOT.get(slot_upper)
-        if not category_id:
-            return []
+        
+        # Keywords to identify the slot in the name as a fallback for miscategorized items
+        slot_keywords = {
+            "CPU": ["CPU", "Bộ vi xử lý", "Ryzen", "Intel Core"],
+            "GPU": ["VGA", "Card màn hình", "RTX", "GTX", "Radeon"],
+            "MAINBOARD": ["Mainboard", "Bo mạch chủ", "Motherboard"],
+            "RAM": ["RAM", "Bộ nhớ trong"],
+            "SSD": ["SSD", "M.2 NVMe"],
+            "HDD": ["HDD", "Ổ cứng HDD"],
+            "PSU": ["Nguồn máy tính", "PSU"],
+            "CASE": ["Thùng máy", "Case"],
+            "COOLER": ["Tản nhiệt", "Cooler", "Fan Case"],
+        }
+        keywords = slot_keywords.get(slot_upper, [])
+        name_regex = "|".join(re.escape(k) for k in keywords)
 
         query: Dict[str, Any] = {
-            "categoryId": ObjectId(category_id),
             "price": {"$gt": 0, "$lte": budget_max},
+            "$or": []
         }
+        if category_id:
+            query["$or"].append({"categoryId": ObjectId(category_id)})
+        if name_regex:
+            query["$or"].append({"name": {"$regex": name_regex, "$options": "i"}})
+            
+        if not query["$or"]:
+            del query["$or"]
 
         excluded: List[Any] = []
         for value in exclude_product_ids or []:
@@ -411,9 +452,11 @@ class MongoSearchService:
             query["_id"] = {"$nin": excluded}
 
         if target_price and target_price > 0:
-            lower = max(1.0, target_price * 0.7)
-            upper = min(budget_max, target_price * 1.3)
-            query["price"] = {"$gte": lower, "$lte": upper}
+            # When upgrading, we want something better than what we have, up to the budget cap
+            # but if no current price is provided, we use a broad range
+            query["price"] = {"$gt": 0, "$lte": budget_max}
+        else:
+            query["price"] = {"$gt": 0, "$lte": budget_max}
 
         brand_clause = self._build_brand_clause_for_slot(slot_upper, selected_brand)
         and_clauses: List[Dict[str, Any]] = [query]
@@ -422,7 +465,10 @@ class MongoSearchService:
 
         socket_text = str(preferred_socket or "").strip().upper()
         if socket_text:
-            socket_regex = re.compile(re.escape(socket_text), re.IGNORECASE)
+            # Support both "LGA1700" and "1700" format from DB
+            # Normalize to bare number for DB matching
+            normalized_socket = socket_text.replace("LGA", "")
+            socket_regex = re.compile(re.escape(normalized_socket), re.IGNORECASE)
             and_clauses.append(
                 {
                     "$or": [
@@ -436,13 +482,23 @@ class MongoSearchService:
             )
 
         platform_text = str(preferred_platform or "").strip().upper()
-        if platform_text in {"AMD", "INTEL"}:
+        # Only apply platform filter if no socket filter is provided
+        # (socket already implies platform, so platform filter is redundant and may exclude valid matches)
+        if platform_text in {"AMD", "INTEL"} and not socket_text:
             platform_regex = re.compile(platform_text, re.IGNORECASE)
             chipset_regex = None
             if platform_text == "AMD":
-                chipset_regex = re.compile(r"\b(A320|A520|B350|B450|B550|B650|X370|X470|X570|X670|AM4|AM5)\b", re.IGNORECASE)
+                is_am5 = socket_text == "AM5" or "AM5" in str(preferred_platform or "").upper()
+                if is_am5:
+                    chipset_regex = re.compile(r"\b(A620|B650|X670|X870|AM5)\b", re.IGNORECASE)
+                else:
+                    chipset_regex = re.compile(r"\b(A320|A520|B350|B450|B550|X370|X470|X570|AM4)\b", re.IGNORECASE)
             if platform_text == "INTEL":
-                chipset_regex = re.compile(r"\b(H610|B660|B760|Z690|Z790|LGA ?1200|LGA ?1700|INTEL)\b", re.IGNORECASE)
+                is_lga1700 = "1700" in socket_text
+                if is_lga1700:
+                    chipset_regex = re.compile(r"\b(H610|B660|B760|Z690|Z790|LGA ?1700)\b", re.IGNORECASE)
+                else:
+                    chipset_regex = re.compile(r"\b(H310|H410|H510|B360|B460|B560|Z390|Z490|Z590|LGA ?1200|LGA ?1151)\b", re.IGNORECASE)
 
             platform_or = [
                 {"brand": platform_regex},
@@ -455,12 +511,13 @@ class MongoSearchService:
             ]
             if chipset_regex is not None:
                 platform_or.append({"name": chipset_regex})
+                platform_or.append({"specs_raw.Chipset": chipset_regex})
+                platform_or.append({"specs_raw.chipset": chipset_regex})
             and_clauses.append({"$or": platform_or})
 
         scoped_query = and_clauses[0] if len(and_clauses) == 1 else {"$and": and_clauses}
 
-        client = MongoClient(self.mongodb_uri)
-        coll = client[self.database][self.collection]
+        coll = self._coll
 
         docs = list(
             coll.find(
@@ -476,7 +533,7 @@ class MongoSearchService:
                     "socket": 1,
                     "specs_raw": 1,
                 },
-            ).limit(max(limit * 8, 20))
+            ).sort("price", -1).limit(max(limit * 8, 20))
         )
 
         if not docs and target_price and target_price > 0:
@@ -490,7 +547,8 @@ class MongoSearchService:
             if brand_clause:
                 broad_clauses.append(brand_clause)
             if socket_text:
-                socket_regex = re.compile(re.escape(socket_text), re.IGNORECASE)
+                normalized_socket = socket_text.replace("LGA", "")
+                socket_regex = re.compile(re.escape(normalized_socket), re.IGNORECASE)
                 broad_clauses.append(
                     {
                         "$or": [
@@ -502,7 +560,7 @@ class MongoSearchService:
                         ]
                     }
                 )
-            if platform_text in {"AMD", "INTEL"}:
+            if platform_text in {"AMD", "INTEL"} and not socket_text:
                 platform_regex = re.compile(platform_text, re.IGNORECASE)
                 chipset_regex = None
                 if platform_text == "AMD":
@@ -539,7 +597,7 @@ class MongoSearchService:
                 ).limit(max(limit * 8, 20))
             )
 
-        if target_price and target_price > 0:
+        if target_price and target_price > 0 and docs:
             docs.sort(key=lambda d: (abs(float(d.get("price", 0)) - target_price), float(d.get("price", 0))))
         else:
             docs.sort(key=lambda d: float(d.get("price", 0)))
@@ -548,7 +606,7 @@ class MongoSearchService:
 
     @staticmethod
     def _extract_terms(query: str) -> List[str]:
-        tokens = re.findall(r"[A-Za-z0-9_]+", query.lower())
+        tokens = re.findall(r"[A-Za-z0-9_/]+", query.lower())
         stopwords = {
             "tu",
             "van",
@@ -565,7 +623,7 @@ class MongoSearchService:
             "pc",
             "trieu",
         }
-        terms = [t for t in tokens if len(t) >= 3 and t not in stopwords]
+        terms = [t for t in tokens if len(t) >= 2 and t not in stopwords]
         # Keep order but remove duplicates.
         deduped: List[str] = []
         seen = set()
@@ -573,7 +631,7 @@ class MongoSearchService:
             if term not in seen:
                 seen.add(term)
                 deduped.append(term)
-        return deduped[:8]
+        return deduped[:20]
 
     def _fallback_text_search(
         self,

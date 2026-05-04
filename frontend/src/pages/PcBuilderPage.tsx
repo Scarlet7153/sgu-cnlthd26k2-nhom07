@@ -286,7 +286,8 @@ const BUILD_SLOTS: PcBuildSlot[] = [
   { category: "mainboard", label: "Mainboard - Bo mạch chủ", required: true, product: null },
   { category: "vga", label: "VGA - Card đồ họa", required: true, product: null },
   { category: "ram", label: "RAM - Bộ nhớ", required: true, product: null },
-  { category: "ssd", label: "SSD - Ổ cứng", required: true, product: null },
+  { category: "ssd", label: "SSD - Ổ cứng SSD", required: true, product: null },
+  { category: "hdd", label: "HDD - Ổ cứng HDD", required: false, product: null },
   { category: "psu", label: "PSU - Nguồn", required: true, product: null },
   { category: "case", label: "Case - Vỏ máy tính", required: false, product: null },
   { category: "cooler", label: "Tản nhiệt", required: false, product: null },
@@ -299,7 +300,8 @@ const isStorageCategory = (category: string): boolean => {
 };
 
 const categoryMatches = (productCategory: string, selectedCategory: CategoryType): boolean => {
-  if (selectedCategory === "ssd") return isStorageCategory(productCategory);
+  if (selectedCategory === "ssd") return productCategory === "ssd" || productCategory === "harddisk";
+  if (selectedCategory === "hdd") return productCategory === "hdd";
   return productCategory === selectedCategory;
 };
 

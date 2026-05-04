@@ -30,6 +30,13 @@ class ProductSuggestion(BaseModel):
     image: Optional[str] = None
     url: Optional[str] = None
     reason: Optional[str] = None
+    ram_type: Optional[Any] = Field(default=None, alias="ramType")
+    socket: Optional[str] = None
+    chipset: Optional[str] = None
+    vram_gb: Optional[int] = Field(default=None, alias="vramGb")
+    capacity_gb: Optional[int] = Field(default=None, alias="capacityGb")
+    wattage_w: Optional[int] = Field(default=None, alias="wattageW")
+    efficiency: Optional[str] = None
 
 
 class Citation(BaseModel):
@@ -52,6 +59,13 @@ class ChatTrace(BaseModel):
     actions: List[AgentActionTrace] = Field(default_factory=list)
 
 
+class ChatContext(BaseModel):
+    budget: Optional[str] = None
+    purpose: Optional[str] = None
+    brand: Optional[str] = None
+    budget_exact: Optional[int] = Field(default=None, alias="budgetExact")
+
+
 class ChatResponse(BaseModel):
     answer: str
     confidence: float = 0.0
@@ -64,6 +78,7 @@ class ChatResponse(BaseModel):
         alias="budgetStatus",
     )
     citations: List[Citation] = Field(default_factory=list)
+    context_update: Optional[ChatContext] = Field(default=None, alias="contextUpdate")
     trace: ChatTrace
 
 

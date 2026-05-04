@@ -9,7 +9,7 @@ import { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClient";
 import { formatPrice } from "@/lib/format";
 
 const FALLBACK_IMAGE = "https://placehold.co/120x120/png?text=No+Image";
-const REQUIRED_SLOTS = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"] as const;
+const REQUIRED_SLOTS = ["CPU", "MAINBOARD", "RAM", "SSD", "HDD", "PSU", "CASE", "COOLER"] as const;
 
 type BuildSessionComponentResponse = {
   slot: string;
@@ -46,6 +46,7 @@ function formatSlotLabel(slot: string): string {
     RAM: "RAM",
     GPU: "GPU",
     SSD: "SSD",
+    HDD: "HDD",
     PSU: "Nguồn PSU",
     CASE: "Vỏ case",
     COOLER: "Tản nhiệt",

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CircleDollarSign, Cpu, Gamepad2, User2 } from "lucide-react";
+import { Bot, CircleDollarSign, Cpu, Gamepad2, User2, RefreshCw, Trash2 } from "lucide-react";
 import AdvisorNav from "@/components/shared/AdvisorNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { advisorClient, getAdvisorSessionId } from "@/lib/advisorClient";
+import { advisorClient, getAdvisorSessionId, regenerateAdvisorSessionId } from "@/lib/advisorClient";
 import { getApiErrorMessage, unwrapApiData } from "@/lib/axiosClient";
 import { formatPrice } from "@/lib/format";
 
@@ -21,6 +21,7 @@ type ProductCard = {
   summary?: string;
   image?: string;
   url?: string;
+  ramType?: string;
   suggestionType?: "primary" | "alternative";
 };
 
@@ -43,10 +44,12 @@ type SelectedComponent = {
   price: number;
   image?: string;
   url?: string;
+  ramType?: string;
 };
 
 type HiddenContext = {
   budget: string | null;
+  budgetExact?: number;
   purpose: string | null;
   brand: string | null;
 };
@@ -67,6 +70,7 @@ type AdvisorProductSuggestion = {
   price?: number | null;
   image?: string | null;
   url?: string | null;
+  ramType?: string | null;
 };
 
 type AdvisorChatResponse = {
@@ -77,6 +81,7 @@ type AdvisorChatResponse = {
   estimatedBuildTotal?: number | null;
   budgetStatus?: "within_budget" | "near_budget" | "over_budget" | "under_budget" | null;
   citations?: AdvisorCitation[];
+  contextUpdate?: InferredFilterPatch;
 };
 
 type AdvisorCitation = {
@@ -96,6 +101,7 @@ type BuildSessionComponentResponse = {
   quantity: number;
   image?: string | null;
   url?: string | null;
+  ramType?: string | null;
 };
 
 type BuildSessionResponse = {
@@ -112,9 +118,21 @@ const budgetOptions = [
   "Trên 30 triệu",
 ];
 
+function mapExactBudgetToRange(exact: number): string {
+  if (exact < 10_000_000) return "Dưới 10 triệu";
+  if (exact <= 15_000_000) return "10 - 15 triệu";
+  if (exact <= 20_000_000) return "15 - 20 triệu";
+  if (exact <= 30_000_000) return "20 - 30 triệu";
+  return "Trên 30 triệu";
+}
+
+function formatVND(amount: number): string {
+  return amount.toLocaleString("vi-VN") + " ₫";
+}
+
 const usageOptions = ["Văn phòng", "Gaming", "Đồ họa 3D", "Stream"];
 
-const brandOptions = ["Intel", "AMD", "NVIDIA", "ASUS", "MSI"];
+const brandOptions = ["Intel", "AMD"];
 
 const FALLBACK_IMAGE = "https://placehold.co/96x96/png?text=No+Image";
 const ADVISOR_CHAT_STATE_STORAGE_PREFIX = "advisor-chat-state";
@@ -233,7 +251,7 @@ function inferSlot(categoryLike: string): string {
     MOTHERBOARD: "MAINBOARD",
     RAM: "RAM",
     SSD: "SSD",
-    HDD: "SSD",
+    HDD: "HDD",
     PSU: "PSU",
     CASE: "CASE",
     COOLER: "COOLER",
@@ -255,6 +273,7 @@ function toProductCard(item: AdvisorProductSuggestion, suggestionType?: "primary
     summary: buildProductSummary(item.name, slot),
     image: item.image || undefined,
     url: item.url || undefined,
+    ramType: item.ramType || undefined,
     suggestionType,
   };
 }
@@ -272,7 +291,7 @@ function buildStructuredProductCards(response: AdvisorChatResponse): ProductCard
   }
 
   const alternativesBySlot = response.alternativesBySlot || {};
-  const orderedSlots = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "GPU", "CASE", "COOLER"];
+  const orderedSlots = ["CPU", "MAINBOARD", "RAM", "SSD", "HDD", "PSU", "GPU", "CASE", "COOLER"];
   const slots = [
     ...orderedSlots.filter((slot) => alternativesBySlot[slot]),
     ...Object.keys(alternativesBySlot).filter((slot) => !orderedSlots.includes(slot)),
@@ -404,6 +423,7 @@ function toSelectedComponent(item: BuildSessionComponentResponse): SelectedCompo
     price: item.price,
     image: item.image || undefined,
     url: item.url || undefined,
+    ramType: item.ramType || undefined,
   };
 }
 
@@ -471,12 +491,6 @@ function inferFiltersFromMessage(message: string, current: HiddenContext): Infer
       patch.brand = "Intel";
     } else if (/\bamd\b|ryzen/.test(normalized)) {
       patch.brand = "AMD";
-    } else if (/nvidia|geforce|rtx|gtx/.test(normalized)) {
-      patch.brand = "NVIDIA";
-    } else if (/\basus\b/.test(normalized)) {
-      patch.brand = "ASUS";
-    } else if (/\bmsi\b/.test(normalized)) {
-      patch.brand = "MSI";
     }
   }
 
@@ -575,6 +589,73 @@ function ProductCardInChat({
   );
 }
 
+const SLOT_LABELS: Record<string, string> = {
+  CPU: "CPU",
+  MAINBOARD: "Mainboard",
+  RAM: "RAM",
+  GPU: "GPU",
+  SSD: "SSD",
+  HDD: "HDD",
+  PSU: "Nguồn PSU",
+  CASE: "Vỏ case",
+  COOLER: "Tản nhiệt",
+};
+
+function BuildSummaryPanel({
+  components,
+  onReplace,
+  onRemove,
+}: {
+  components: SelectedComponent[];
+  onReplace: (slot: string, name: string) => void;
+  onRemove: (slot: string) => void;
+}) {
+  if (components.length === 0) return null;
+
+  const total = components.reduce((sum, c) => sum + (c.price || 0), 0);
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground">Cấu hình đã chọn</p>
+        <p className="text-xs font-bold text-primary">{formatPrice(total)}</p>
+      </div>
+      <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+        {components.map((comp) => (
+          <div
+            key={comp.slot + "-" + comp.id}
+            className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-2 py-1.5"
+          >
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase">
+                {SLOT_LABELS[comp.slot] || comp.slot}
+              </p>
+              <p className="line-clamp-1 text-xs text-foreground">{comp.name}</p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <p className="text-[11px] font-semibold text-primary whitespace-nowrap">{formatPrice(comp.price)}</p>
+              <button
+                onClick={() => onReplace(comp.slot, comp.name)}
+                className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition"
+                title="Thay thế linh kiện này"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onRemove(comp.slot)}
+                className="rounded-md p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+                title="Xóa linh kiện này"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ThinkingBubble() {
   return (
     <div className="flex justify-start">
@@ -599,7 +680,7 @@ function ThinkingBubble() {
 export default function ChatbotAdvisorPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [sessionId] = useState<string>(() => getAdvisorSessionId());
+  const [sessionId, setSessionId] = useState<string>(() => getAdvisorSessionId());
   const persistedState = useMemo(() => loadPersistedChatState(sessionId), [sessionId]);
   const [currentFilters, setCurrentFilters] = useState<HiddenContext>(
     () => persistedState?.currentFilters ?? EMPTY_FILTERS
@@ -698,8 +779,9 @@ export default function ChatbotAdvisorPage() {
   }, [sessionId]);
 
   const updateFilter = (field: keyof HiddenContext, value: string) => {
-    // Hidden state: chỉ cập nhật ngữ cảnh, không ghi gì vào khung chat.
-    setCurrentFilters((prev) => ({ ...prev, [field]: value }));
+    // Clear exact budget when user manually picks a range
+    const extra = field === "budget" ? { budgetExact: undefined } : {};
+    setCurrentFilters((prev) => ({ ...prev, [field]: value, ...extra }));
   };
 
   const persistContextUpdate = async (filters: HiddenContext) => {
@@ -737,6 +819,24 @@ export default function ChatbotAdvisorPage() {
     toast({
       title: "Đã xóa tiêu chí",
       description: "Bộ lọc đã được đặt lại.",
+    });
+  };
+
+  const newSession = () => {
+    // Reset messages to initial welcome
+    setMessages(initialMessages);
+    setInput("");
+    // Clear old persisted state and regenerate session ID
+    try {
+      const key = `advisor-chat-state:${sessionId}`;
+      localStorage.removeItem(key);
+    } catch {}
+    const newId = regenerateAdvisorSessionId();
+    setSessionId(newId);
+    setCurrentFilters(EMPTY_FILTERS);
+    toast({
+      title: "Đã tạo phiên mới",
+      description: "Cuộc trò chuyện đã được đặt lại.",
     });
   };
 
@@ -780,6 +880,7 @@ export default function ChatbotAdvisorPage() {
         quantity: 1,
         image: product.image,
         url: product.url,
+        ramType: product.ramType,
       };
       const raw = await advisorClient.post(`/build-sessions/${encodeURIComponent(sessionId)}/components`, payload);
       const data = unwrapApiData<BuildSessionResponse>(raw);
@@ -806,18 +907,48 @@ export default function ChatbotAdvisorPage() {
     }
   };
 
+  const [replaceDialog, setReplaceDialog] = useState<{ slot: string; name: string } | null>(null);
+
+  const handleReplaceComponent = (slot: string, currentName: string) => {
+    setReplaceDialog({ slot, name: currentName });
+  };
+
+  const handleReplaceConfirm = async (intent: "cheaper" | "expensive" | "any") => {
+    if (!replaceDialog) return;
+    const { slot, name } = replaceDialog;
+    setReplaceDialog(null);
+    const intentMap: Record<string, string> = {
+      cheaper: "rẻ hơn",
+      expensive: "mắc hơn",
+      any: "khác",
+    };
+    const query = `Tôi muốn thay thế ${SLOT_LABELS[slot] || slot} "${name}" bằng linh kiện ${intentMap[intent]} cùng loại. Hãy gợi ý các phương án thay thế.`;
+    setInput("");
+    await requestAdvisor(query, true);
+  };
+
+  const handleRemoveComponent = async (slot: string) => {
+    try {
+      const comp = selectedComponents.find((c) => c.slot === slot);
+      if (!comp) return;
+      const raw = await advisorClient.delete(`/build-sessions/${encodeURIComponent(sessionId)}/components/${encodeURIComponent(comp.id)}`);
+      const data = unwrapApiData<BuildSessionResponse>(raw);
+      setSelectedComponents((data.selectedComponents || []).map(toSelectedComponent));
+      toast({
+        title: "Đã xóa linh kiện",
+        description: `${SLOT_LABELS[slot] || slot}: ${comp.name}`,
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Không thể xóa linh kiện",
+        description: getApiErrorMessage(error, "Vui lòng thử lại."),
+        variant: "destructive",
+      });
+    }
+  };
+
   const requestAdvisor = async (chatMessage: string, appendUserMessage: boolean) => {
     if (isSending) return;
-
-    let effectiveFilters = currentFilters;
-    if (!hasAnyFilter(effectiveFilters)) {
-      effectiveFilters = await maybeAutoFillFiltersFromMessage(chatMessage);
-    }
-
-    if (!hasAnyFilter(effectiveFilters)) {
-      promptForFilters(true);
-      return;
-    }
 
     setIsSending(true);
 
@@ -831,15 +962,17 @@ export default function ChatbotAdvisorPage() {
         accountId: user?.id,
         query: chatMessage,
         context: {
-          budget: effectiveFilters.budget,
-          purpose: effectiveFilters.purpose,
-          brand: effectiveFilters.brand,
+          budget: currentFilters.budget,
+          budgetExact: currentFilters.budgetExact,
+          purpose: currentFilters.purpose,
+          brand: currentFilters.brand,
           selectedComponents: selectedComponents.map((item) => ({
             slot: item.slot,
             productId: item.id,
             categoryId: item.categoryId,
             name: item.name,
             price: item.price,
+            ramType: item.ramType,
           })),
         },
         options: {
@@ -862,6 +995,43 @@ export default function ChatbotAdvisorPage() {
         snippet: item.snippet,
       }));
       addAssistantResponse(assistantText, products, citations);
+
+      // Auto-sync extracted criteria back to UI filters
+      if (response.contextUpdate) {
+        const update = response.contextUpdate;
+        let nextFilters = { ...currentFilters };
+        let hasChanges = false;
+        
+        if (update.budgetExact !== undefined && update.budgetExact !== currentFilters.budgetExact) {
+          nextFilters.budgetExact = update.budgetExact;
+          nextFilters.budget = mapExactBudgetToRange(update.budgetExact);
+          hasChanges = true;
+        } else if (update.budget && update.budget !== currentFilters.budget) {
+          nextFilters.budget = update.budget;
+          hasChanges = true;
+        }
+        if (update.purpose && update.purpose !== currentFilters.purpose) {
+          nextFilters.purpose = update.purpose;
+          hasChanges = true;
+        }
+        if (update.brand && update.brand !== currentFilters.brand) {
+          nextFilters.brand = update.brand;
+          hasChanges = true;
+        }
+        
+        if (hasChanges) {
+          setCurrentFilters(nextFilters);
+          persistContextUpdate(nextFilters);
+          // Only show toast if the visible label changed
+          if (update.budgetExact && update.budgetExact !== currentFilters.budgetExact) {
+             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Ngân sách: ${formatVND(update.budgetExact)}` });
+          } else if (update.budget && update.budget !== currentFilters.budget) {
+             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Ngân sách: ${update.budget}` });
+          } else if (update.purpose && update.purpose !== currentFilters.purpose) {
+             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Nhu cầu: ${update.purpose}` });
+          }
+        }
+      }
     } catch (error: unknown) {
       addTextMessage("assistant", getApiErrorMessage(error, "Không thể kết nối tới AI advisor."));
     } finally {
@@ -912,6 +1082,11 @@ export default function ChatbotAdvisorPage() {
                   value={currentFilters.budget}
                   onSelect={(value) => updateFilter("budget", value)}
                 />
+                {currentFilters.budgetExact && (
+                  <div className="mt-1 text-center text-[10px] text-muted-foreground">
+                    Giá trị chính xác: <span className="font-semibold text-foreground">{formatVND(currentFilters.budgetExact)}</span>
+                  </div>
+                )}
                 <FilterGroup
                   title="Nhu cầu sử dụng"
                   icon={<Gamepad2 className="h-4 w-4 text-primary" />}
@@ -931,6 +1106,12 @@ export default function ChatbotAdvisorPage() {
                 />
               </div>
             </div>
+
+            <BuildSummaryPanel
+              components={selectedComponents}
+              onReplace={handleReplaceComponent}
+              onRemove={handleRemoveComponent}
+            />
 
             <div className="rounded-2xl border border-border bg-card p-3">
               <div className="rounded-xl border border-border bg-background p-3">
@@ -959,6 +1140,12 @@ export default function ChatbotAdvisorPage() {
               </div>
             </div>
 
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground">Tư vấn</p>
+              <Button variant="ghost" size="sm" onClick={newSession} className="h-6 text-xs">
+                Phiên mới
+              </Button>
+            </div>
             <div className="h-[60vh] space-y-3 overflow-y-auto rounded-xl border border-border bg-background p-3 sm:h-[64vh] lg:h-auto lg:flex-1">
               {messages.map((msg) => (
                 <div
@@ -1060,6 +1247,31 @@ export default function ChatbotAdvisorPage() {
               </Button>
             </div>
           </section>
+
+          {replaceDialog && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="rounded-xl border border-border bg-card p-5 shadow-xl w-80">
+                <h3 className="text-sm font-semibold mb-1">Thay thế linh kiện</h3>
+                <p className="text-xs text-muted-foreground mb-4">
+                  {SLOT_LABELS[replaceDialog.slot] || replaceDialog.slot}: {replaceDialog.name}
+                </p>
+                <div className="flex flex-col gap-2">
+                  <Button size="sm" onClick={() => handleReplaceConfirm("cheaper")} variant="outline">
+                    Rẻ hơn
+                  </Button>
+                  <Button size="sm" onClick={() => handleReplaceConfirm("expensive")} variant="outline">
+                    Mắc hơn
+                  </Button>
+                  <Button size="sm" onClick={() => handleReplaceConfirm("any")}>
+                    Tuỳ ý
+                  </Button>
+                </div>
+                <Button variant="ghost" size="sm" className="mt-3 w-full text-muted-foreground" onClick={() => setReplaceDialog(null)}>
+                  Huỷ
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

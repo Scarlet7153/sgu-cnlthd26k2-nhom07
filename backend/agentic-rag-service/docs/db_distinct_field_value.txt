@@ -1,0 +1,231 @@
+CPU:
+// Socket
+db.products.distinct("socket", { "categoryId": ObjectId("69ac61dba931fab39af1232e") })
+[
+  '1200',  '1700',
+  '1851',  'AM4',
+  'AM5',   'FCLGA1700',
+  'TR4',   'sTR5',
+  'sWRX8'
+]
+
+// ram_type
+db.products.distinct("ram_type", { "categoryId": ObjectId("69ac61dba931fab39af1232e") })
+[ 'DDR4', 'DDR5' ]
+
+// has_igpu
+db.products.distinct("has_igpu", { "categoryId": ObjectId("69ac61dba931fab39af1232e") })
+[ false, true ]
+
+
+GPU
+// vram_gb
+db.products.distinct("vram_gb", { "categoryId": ObjectId("69ac61dba931fab39af1232f") })
+[
+   2,  4,  6,  8, 10,
+  12, 16, 20, 24, 32,
+  48, 96
+]
+
+// recommended_psu_w
+db.products.distinct("recommended_psu_w", { "categoryId": ObjectId("69ac61dba931fab39af1232f") })
+[
+  140,  200, 210, 250, 300,
+  350,  400, 450, 500, 550,
+  600,  650, 700, 750, 800,
+  850, 1000
+]
+
+// specs_raw.recommended_psu_w
+db.products.distinct("specs_raw.recommended_psu_w", { "categoryId": ObjectId("69ac61dba931fab39af1232f") })
+[]
+
+
+Mainboard 
+// socket
+db.products.distinct("socket", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[
+  '1151', '1151-v2',
+  '1200', '1700',
+  '1851', 'AM4',
+  'AM5'
+]
+
+// chipset
+db.products.distinct("chipset", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[
+  'A320', 'A520',  'A620', 'B460',
+  'B550', 'B560',  'B650', 'B660',
+  'B760', 'B760M', 'B840', 'B850',
+  'B860', 'C232',  'H310', 'H470',
+  'H510', 'H610',  'X570', 'X670',
+  'X870', 'X870E', 'Z490', 'Z590',
+  'Z690', 'Z790',  'Z890'
+]
+
+
+// specs_raw.Chipset
+db.products.distinct("specs_raw.Chipset", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[
+  ' A320 ',  ' A520 ', ' A620 ',
+  ' B460 ',  ' B550 ', ' B560 ',
+  ' B650 ',  ' B660 ', ' B760 ',
+  ' B760M ', ' B840 ', ' B850 ',
+  ' B860 ',  ' C232 ', ' H310 ',
+  ' H470 ',  ' H510 ', ' H610 ',
+  ' X570 ',  ' X670 ', ' X870 ',
+  ' X870E ', ' Z490 ', ' Z590 ',
+  ' Z690 ',  ' Z790 ', ' Z890 '
+]
+
+// form_factor
+db.products.distinct("form_factor", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[ 'ATX', 'Extended-ATX', 'Micro-ATX', 'Mini-ITX' ]
+
+// ram_type
+db.products.distinct("ram_type", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[ 'DDR4', 'DDR5' ]
+
+// ram_slots
+db.products.distinct("ram_slots", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[ 2, 4, 8 ]
+
+// m2_slots
+db.products.distinct("m2_slots", { "categoryId": ObjectId("69ac61dba931fab39af12331") })
+[ 1, 2, 3, 4, 5, 6 ]
+
+
+
+RAM
+// ram_type
+db.products.distinct("ram_type", { "categoryId": ObjectId("69ac61dba931fab39af12330") })
+[ 'DDR4', 'DDR5' ]
+
+// capacity_gb
+db.products.distinct("capacity_gb", { "categoryId": ObjectId("69ac61dba931fab39af12330") })
+[
+   4,  8,  16,  32, 48,
+  64, 96, 128, 256
+]
+
+// speed_mhz
+db.products.distinct("speed_mhz", { "categoryId": ObjectId("69ac61dba931fab39af12330") })
+[
+  1600, 2400, 2666, 3000,
+  3200, 3600, 4000, 4800,
+  5200, 5600, 6000, 6200,
+  6400, 6600, 7200, 8000
+]
+
+// modules
+db.products.distinct("modules", { "categoryId": ObjectId("69ac61dba931fab39af12330") })
+[ 1, 2, 4, 8 ]
+
+PSU
+// wattage_w
+db.products.distinct("wattage_w", { "categoryId": ObjectId("69ac61dba931fab39af12332") })
+[
+   230,  350,  400,  450,  500,
+   550,  600,  650,  700,  750,
+   850, 1000, 1050, 1200, 1250,
+  1500, 1600, 1650
+]
+
+// efficiency
+db.products.distinct("efficiency", { "categoryId": ObjectId("69ac61dba931fab39af12332") })
+[
+  '80 Plus',
+  '80 Plus Bronze',
+  '80 Plus Gold',
+  '80 Plus Platinum',
+  '80 Plus Silver',
+  '80 Plus Titanium',
+  '80 Plus White',
+  'Cybenetics Gold'
+]
+
+// modularity
+db.products.distinct("modularity", { "categoryId": ObjectId("69ac61dba931fab39af12332") })
+[ 'Full Modular', 'Semi Modular', 'không hỗ trợ' ]
+
+SSD 
+// type (SSD/HDD)
+db.products.distinct("type", { "categoryId": ObjectId("69ac61dba931fab39af12334") })
+[ 'HDD', 'SSD', 'di động HDD', 'di động SSD', 'Ổ gắn ngoài' ]
+
+// capacity_gb
+db.products.distinct("capacity_gb", { "categoryId": ObjectId("69ac61dba931fab39af12334") })
+[
+    120,   128,   240,   250,   256,
+    480,   500,   512,   960,  1024,
+   2048,  2457,  3072,  3840,  4096,
+   5120,  6144,  8192, 10240, 12288,
+  14336, 16384, 18432, 20480, 32768
+]
+
+// interface (NVMe/SATA)
+db.products.distinct("interface", { "categoryId": ObjectId("69ac61dba931fab39af12334") })
+[ 'NVMe', 'PCIe', 'SATA', 'USB', 'sas', 'sas 3' ]
+
+// form_factor
+db.products.distinct("form_factor", { "categoryId": ObjectId("69ac61dba931fab39af12334") })
+[ 2.5, 3.5, 'M.2', 'khác' ]
+
+
+Case 
+// case_type
+db.products.distinct("case_type", { "categoryId": ObjectId("69ac61dba931fab39af12333") })
+[ 'Full Tower', 'Mid Tower', 'Mini Tower', 'Super Tower' ]
+
+// form_factor
+db.products.distinct("form_factor", { "categoryId": ObjectId("69ac61dba931fab39af12333") })
+[]
+
+// max_cpu_cooler_height_mm
+db.products.distinct("max_cpu_cooler_height_mm", { "categoryId": ObjectId("69ac61dba931fab39af12333") })
+[
+   67,  76, 120, 130, 140, 145,
+  150, 155, 157, 158, 160, 161,
+  162, 163, 164, 165, 166, 167,
+  168, 170, 175, 180, 185, 186,
+  190, 198, 400, 430
+]
+
+Cooler
+// cooler_type
+db.products.distinct("cooler_type", { "categoryId": ObjectId("69ac61dba931fab39af12335") })
+[ 'air', 'liquid' ]
+
+// supported_sockets (array)
+db.products.distinct("supported_sockets", { "categoryId": ObjectId("69ac61dba931fab39af12335") })
+[
+  'AMD AM2',           'AMD AM2+',
+  'AMD AM3',           'AMD AM3+',
+  'AMD AM4',           'AMD AM5',
+  'AMD FM1',           'AMD SP3',
+  'AMD TR4',           'AMD sTR4',
+  'AMD sTRX4',         'Intel LGA 1150',
+  'Intel LGA 1151',    'Intel LGA 1151-v2',
+  'Intel LGA 1152',    'Intel LGA 1155',
+  'Intel LGA 1156',    'Intel LGA 115X',
+  'Intel LGA 1200',    'Intel LGA 1356',
+  'Intel LGA 1366',    'Intel LGA 1700',
+  'Intel LGA 17XX',    'Intel LGA 1851',
+  'Intel LGA 2011',    'Intel LGA 2011-3',
+  'Intel LGA 2011-v3', 'Intel LGA 2066',
+  'Intel LGA 775',     'Intel LGA20XX'
+]
+
+// specs_raw.supported_sockets
+db.products.distinct("specs_raw.supported_sockets", { "categoryId": ObjectId("69ac61dba931fab39af12335") })
+[]
+
+// radiator_mm
+db.products.distinct("radiator_mm", { "categoryId": ObjectId("69ac61dba931fab39af12335") })
+[
+   12,  14,  25,  27,  30,  32,  39,
+   79,  95, 112, 120, 132, 140, 151,
+  152, 154, 155, 156, 157, 160, 163,
+  164, 240, 277, 280, 322, 360, 394,
+  397, 420
+]

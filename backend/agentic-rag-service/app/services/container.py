@@ -31,6 +31,8 @@ class ServiceContainer:
             api_key=settings.litellm_api_key,
             base_url=settings.litellm_base_url,
             temperature=settings.litellm_temperature,
+            timeout_seconds=settings.litellm_timeout_seconds,
+            max_tokens=settings.litellm_max_tokens,
         )
         self.smolagent_adapter = SmolAgentAdapter(enabled=settings.enable_smolagents)
         self.chat_history_service = ChatHistoryService(
