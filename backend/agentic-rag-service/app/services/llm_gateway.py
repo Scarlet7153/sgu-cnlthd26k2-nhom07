@@ -2,6 +2,7 @@ from typing import Any, Dict
 
 import httpx
 import logging
+import time
 from litellm import completion
 
 
@@ -27,11 +28,17 @@ class LLMGateway:
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         if self.model.startswith("ollama/"):
-            try:
-                return self._generate_via_ollama_api(system_prompt=system_prompt, user_prompt=user_prompt)
-            except Exception as exc:
-                logger.exception("Ollama direct API call failed: %s", exc)
-                return "[LLM fallback] Khong goi duoc provider, da tra ve cau tra loi an toan dua tren bang chung hien co."
+            import time
+            last_error = None
+            for attempt in range(3):
+                try:
+                    return self._generate_via_ollama_api(system_prompt=system_prompt, user_prompt=user_prompt)
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < 2:
+                        time.sleep(6)
+            logger.exception("Ollama direct API call failed after 3 retries: %s", last_error)
+            return "[LLM fallback] Khong goi duoc provider, da tra ve cau tra loi an toan dua tren bang chung hien co."
 
         # Fallback local behavior for environments without provider credentials.
         if not self.api_key:
@@ -40,44 +47,49 @@ class LLMGateway:
         extra: Dict[str, Any] = {}
         if self.base_url:
             normalized_base_url = self.base_url.rstrip("/")
-            # LiteLLM's Ollama provider appends /api/generate itself.
-            # If users configure .../api from docs, trim it to avoid /api/api/generate.
             if self.model.startswith("ollama/") and normalized_base_url.endswith("/api"):
                 normalized_base_url = normalized_base_url[:-4]
-            extra["base_url"] = normalized_base_url
+            extra["api_base" if self.model.startswith("openai/") else "base_url"] = normalized_base_url
 
         try:
-            response = completion(
-                model=self.model,
-                api_key=self.api_key,
-                temperature=self.temperature,
-                timeout=self.timeout_seconds,
-                max_tokens=self.max_tokens,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                **extra,
-            )
-            return response.choices[0].message.content or ""
+            for attempt in range(3):
+                try:
+                    response = completion(
+                        model=self.model,
+                        api_key=self.api_key,
+                        temperature=self.temperature,
+                        timeout=self.timeout_seconds,
+                        max_tokens=self.max_tokens,
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                        **extra,
+                    )
+                    return response.choices[0].message.content or ""
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    time.sleep(1)
         except Exception as exc:
-            logger.exception("LiteLLM call failed: %s", exc)
-            return "[LLM fallback] Khong goi duoc provider, da tra ve cau tra loi an toan dua tren bang chung hien co."
+            logger.exception(f"LiteLLM failed after 3 retries: {exc}")
+            return "[LLM fallback] Khong goi duoc provider."
 
     def _generate_via_ollama_api(self, system_prompt: str, user_prompt: str) -> str:
-        base = (self.base_url or "http://localhost:11434/api").rstrip("/")
-        endpoint = f"{base}/generate" if base.endswith("/api") else f"{base}/api/generate"
+        base = (self.base_url or "https://ollama.com/api").rstrip("/")
+        endpoint = f"{base}/chat" if base.endswith("/api") else f"{base}/api/chat"
         model_name = self.model.split("/", 1)[1]
 
         headers: Dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        msgs = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.append({"role": "user", "content": user_prompt})
+
         payload = {
             "model": model_name,
-            "prompt": f"{system_prompt}\n\n{user_prompt}",
+            "messages": msgs,
             "stream": False,
-            "options": {"temperature": self.temperature},
         }
 
         response = httpx.post(endpoint, headers=headers, json=payload, timeout=self.timeout_seconds)

@@ -131,6 +131,12 @@ function formatVND(amount: number): string {
 }
 
 const usageOptions = ["Văn phòng", "Gaming", "Đồ họa 3D", "Stream"];
+const PURPOSE_MAP: Record<string, string> = {
+  gaming: "Gaming",
+  office: "Văn phòng",
+  design: "Đồ họa 3D",
+  streaming: "Stream",
+};
 
 const brandOptions = ["Intel", "AMD"];
 
@@ -907,6 +913,22 @@ export default function ChatbotAdvisorPage() {
     }
   };
 
+  const handleAddAllParts = async (products: ProductCard[], messageId: string, expanded: boolean) => {
+    setIsSyncingBuild(true);
+    const items = expanded ? products : products.slice(0, DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE);
+    for (const product of items) {
+      try {
+        const payload = { slot: product.slot, productId: product.id, categoryId: product.categoryId, name: product.name, price: product.price, quantity: 1, image: product.image, url: product.url, ramType: product.ramType };
+        await advisorClient.post(`/build-sessions/${encodeURIComponent(sessionId)}/components`, payload);
+      } catch (e) { /* skip incompatible */ }
+    }
+    const raw = await advisorClient.get(`/build-sessions/${encodeURIComponent(sessionId)}`);
+    const data = unwrapApiData(raw);
+    setSelectedComponents((data.selectedComponents || []).map(toSelectedComponent));
+    setIsSyncingBuild(false);
+    toast({ title: "Đã thêm vào cấu hình", description: `Đã thêm ${items.length} linh kiện.` });
+  };
+
   const [replaceDialog, setReplaceDialog] = useState<{ slot: string; name: string } | null>(null);
 
   const handleReplaceComponent = (slot: string, currentName: string) => {
@@ -1004,15 +1026,18 @@ export default function ChatbotAdvisorPage() {
         
         if (update.budgetExact !== undefined && update.budgetExact !== currentFilters.budgetExact) {
           nextFilters.budgetExact = update.budgetExact;
-          nextFilters.budget = mapExactBudgetToRange(update.budgetExact);
+          nextFilters.budget = null;  // Clear range when exact budget is set
           hasChanges = true;
         } else if (update.budget && update.budget !== currentFilters.budget) {
           nextFilters.budget = update.budget;
           hasChanges = true;
         }
-        if (update.purpose && update.purpose !== currentFilters.purpose) {
-          nextFilters.purpose = update.purpose;
-          hasChanges = true;
+        if (update.purpose) {
+          const mapped = PURPOSE_MAP[update.purpose] || update.purpose;
+          if (mapped !== currentFilters.purpose) {
+            nextFilters.purpose = mapped;
+            hasChanges = true;
+          }
         }
         if (update.brand && update.brand !== currentFilters.brand) {
           nextFilters.brand = update.brand;
@@ -1024,11 +1049,23 @@ export default function ChatbotAdvisorPage() {
           persistContextUpdate(nextFilters);
           // Only show toast if the visible label changed
           if (update.budgetExact && update.budgetExact !== currentFilters.budgetExact) {
-             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Ngân sách: ${formatVND(update.budgetExact)}` });
+            toast({
+              title: "Đã cập nhật tiêu chí từ tin nhắn",
+              description: `Ngân sách: ${formatVND(update.budgetExact)}`,
+            });
           } else if (update.budget && update.budget !== currentFilters.budget) {
-             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Ngân sách: ${update.budget}` });
-          } else if (update.purpose && update.purpose !== currentFilters.purpose) {
-             toast({ title: "Đã cập nhật tiêu chí từ tin nhắn", description: `Nhu cầu: ${update.purpose}` });
+            toast({
+              title: "Đã cập nhật tiêu chí từ tin nhắn",
+              description: `Ngân sách: ${update.budget}`,
+            });
+          } else if (update.purpose) {
+            const mapped = PURPOSE_MAP[update.purpose] || update.purpose;
+            if (mapped !== currentFilters.purpose) {
+              toast({
+                title: "Đã cập nhật tiêu chí từ tin nhắn",
+                description: `Nhu cầu: ${mapped}`,
+              });
+            }
           }
         }
       }
@@ -1075,18 +1112,35 @@ export default function ChatbotAdvisorPage() {
                 </Button>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <FilterGroup
-                  title="Ngân sách"
-                  icon={<CircleDollarSign className="h-4 w-4 text-primary" />}
-                  options={budgetOptions}
-                  value={currentFilters.budget}
-                  onSelect={(value) => updateFilter("budget", value)}
-                />
-                {currentFilters.budgetExact && (
-                  <div className="mt-1 text-center text-[10px] text-muted-foreground">
-                    Giá trị chính xác: <span className="font-semibold text-foreground">{formatVND(currentFilters.budgetExact)}</span>
+                <div className="rounded-xl border border-border bg-background p-2.5 sm:p-3">
+                  <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground sm:text-sm">
+                    <CircleDollarSign className="h-4 w-4 text-primary" />
+                    Ngân sách
+                  </h2>
+                  <div className="flex flex-wrap gap-1.5">
+                    {budgetOptions.map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => updateFilter("budget", opt)}
+                        className={`rounded-full border px-2 py-1 text-[10px] font-medium transition sm:px-2.5 sm:text-[11px] ${
+                          currentFilters.budget === opt
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                    {currentFilters.budgetExact && (
+                      <button
+                        onClick={() => setCurrentFilters((prev) => ({ ...prev, budgetExact: undefined, budget: prev.budget || null }))}
+                        className={`rounded-full border px-2 py-1 text-[10px] font-medium transition sm:px-2.5 sm:text-[11px] border-primary bg-primary text-primary-foreground`}
+                      >
+                        {formatVND(currentFilters.budgetExact)}
+                      </button>
+                    )}
                   </div>
-                )}
+                </div>
                 <FilterGroup
                   title="Nhu cầu sử dụng"
                   icon={<Gamepad2 className="h-4 w-4 text-primary" />}
@@ -1166,9 +1220,6 @@ export default function ChatbotAdvisorPage() {
                     <p className="whitespace-pre-line break-words">{msg.content}</p>
                     {msg.contentType === "products" && msg.products && msg.products.length > 0 && (
                       <div className="mt-3 space-y-2">
-                        <p className="rounded-md border border-border/70 bg-background px-2 py-1 text-[11px] text-muted-foreground">
-                          Danh sach nay la cac lua chon thay the theo tung nhom linh kien. Ban chi can chon 1 san pham phu hop cho moi nhom.
-                        </p>
                         {(expandedProductMessages[msg.id]
                           ? msg.products
                           : msg.products.slice(0, DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE)
@@ -1179,25 +1230,33 @@ export default function ChatbotAdvisorPage() {
                             onAdd={addSelectedPart}
                           />
                         ))}
-                        {msg.products.length > DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE && (
-                          <div className="pt-1">
+                        <div className="flex gap-2 pt-1">
                             <Button
-                              type="button"
-                              variant="outline"
                               size="sm"
-                              onClick={() =>
-                                setExpandedProductMessages((prev) => ({
-                                  ...prev,
-                                  [msg.id]: !prev[msg.id],
-                                }))
-                              }
+                              variant="secondary"
+                              onClick={() => handleAddAllParts(msg.products, msg.id, !!expandedProductMessages[msg.id])}
+                              disabled={isSyncingBuild}
                             >
-                              {expandedProductMessages[msg.id]
-                                ? "Thu gọn"
-                                : `Xem thêm ${msg.products.length - DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE} sản phẩm`}
+                              {isSyncingBuild ? "Đang thêm..." : "Thêm tất cả vào cấu hình"}
                             </Button>
+                            {msg.products.length > DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setExpandedProductMessages((prev) => ({
+                                    ...prev,
+                                    [msg.id]: !prev[msg.id],
+                                  }))
+                                }
+                              >
+                                {expandedProductMessages[msg.id]
+                                  ? "Thu gọn"
+                                  : `Xem thêm ${msg.products.length - DEFAULT_VISIBLE_PRODUCTS_PER_MESSAGE} sản phẩm`}
+                              </Button>
+                            )}
                           </div>
-                        )}
                       </div>
                     )}
                     {msg.contentType === "actions" && msg.actions && msg.actions.length > 0 && (

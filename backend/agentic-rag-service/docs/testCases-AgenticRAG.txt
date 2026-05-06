@@ -1,0 +1,163 @@
+Dưới đây là **bộ 9 kịch bản kiểm thử AI Agent hoàn chỉnh**, được tổ chức thành 2 nhóm: **Kiểm thử chức năng cốt lõi** (TC-AI-01 đến TC-AI-05) và **Kiểm thử theo phân khúc nhu cầu** (TC-AI-06 đến TC-AI-09). Tất cả đều ở định dạng bảng độc lập, sẵn sàng chèn ảnh minh chứng và tích hợp vào báo cáo.
+
+---
+
+## 4.4.1.1. Kiểm thử chuyên sâu AI Agent (Agentic RAG)
+
+### Nhóm 1: Kiểm thử chức năng cốt lõi
+
+#### Kịch bản TC-AI-01: Tư vấn cấu hình hoàn chỉnh theo ngân sách
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra khả năng xây dựng cấu hình PC trọn bộ (Full build) bám sát ngân sách và mục đích sử dụng. |
+| **Đầu vào (Input)** | `"Mình muốn build PC chơi game FPS ở mức 15 triệu, ưu tiên CPU mạnh để stream nhẹ."` |
+| **Kỳ vọng (Expected)** | - Đề xuất đầy đủ các nhóm linh kiện (CPU, Main, RAM, VGA, PSU, Case, SSD).<br>- Tổng giá dao động trong khoảng ±10% ngân sách (13.5 - 16.5 triệu).<br>- CPU đề xuất có số nhân/luồng cao, VGA tầm trung.<br>- Giải thích rõ lý do chọn từng linh kiện dựa trên nhu cầu stream/chơi game.<br>- Chủ động cảnh báo nếu ngân sách quá căng để lên VGA mạnh. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Nêu rõ lý do chọn từng linh kiện.<br>- **Không phòng thủ:** Chủ động đưa ra lựa chọn thay thế.<br>- **Định dạng chuẩn:** Cấu trúc rõ ràng, không sinh nội dung thừa. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về độ chính xác của cấu hình hoặc lỗi phát sinh nếu có)* |
+
+---
+
+#### Kịch bản TC-AI-02: Kiểm tra tính tương thích (Ràng buộc kỹ thuật)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra cơ chế Compatibility Engine khi người dùng cố định một linh kiện và yêu cầu AI tìm các linh kiện đi kèm. |
+| **Đầu vào (Input)** | `"Mình đã chọn CPU Intel Core i5-14400F, bạn hãy gợi ý Mainboard và RAM phù hợp cho con này."` |
+| **Kỳ vọng (Expected)** | - Gợi ý Mainboard có socket LGA1700 (VD: B760, Z790).<br>- Gợi ý RAM phù hợp (DDR4 hoặc DDR5 tùy mainboard được chọn).<br>- Tuyệt đối không đề xuất Mainboard socket AM5 hoặc RAM không hỗ trợ.<br>- Nêu rõ thông số khớp (ví dụ: "Main này có socket LGA1700 tương thích với CPU của bạn").<br>- Nếu người dùng hỏi ngược lại (xin main AMD cho CPU Intel), AI phải từ chối thẳng thắn kèm lý do kỹ thuật. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Nêu rõ thông số khớp.<br>- **Không phòng thủ:** Từ chối thẳng thắn kèm lý do kỹ thuật.<br>- **Định dạng chuẩn:** Cấu trúc mạch lạc, thuật ngữ chuẩn xác. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về khả năng lọc sai của AI nếu có)* |
+
+---
+
+#### Kịch bản TC-AI-03: Nâng cấp và thay đổi linh kiện (Duy trì ngữ cảnh)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra khả năng ghi nhớ phiên làm việc (Session Context) khi người dùng muốn sửa đổi cấu hình đã tạo. |
+| **Đầu vào (Input)** | `"Cấu hình cũ hơi thiếu RAM, mình muốn nâng lên 32GB và thêm ổ cứng SSD 1TB cho dữ liệu."` |
+| **Kỳ vọng (Expected)** | - Giữ nguyên các linh kiện đã chốt ở các bước trước (CPU, Main, VGA...).<br>- Chỉ thay đổi RAM lên 32GB và thêm SSD 1TB.<br>- Tính toán lại tổng giá tiền chính xác.<br>- Xác nhận sự thay đổi ("Đã nâng RAM lên 32GB, thêm SSD...").<br>- Tự động kiểm tra lại nguồn (PSU) nếu tổng công suất tăng quá cao sau khi nâng cấp. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Xác nhận sự thay đổi rõ ràng.<br>- **Không phòng thủ:** Tự động kiểm tra lại ràng buộc.<br>- **Định dạng chuẩn:** Cấu trúc rõ ràng, dễ đọc. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú xem AI có bị quên linh kiện cũ hay không)* |
+
+---
+
+#### Kịch bản TC-AI-04: Xử lý yêu cầu xung đột (Edge Case)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra phản ứng của AI khi người dùng đưa ra yêu cầu phi logic hoặc xung đột nghiêm trọng. |
+| **Đầu vào (Input)** | `"Mình muốn mua Mainboard AMD X670E để lắp vào con CPU Intel i7-14700K."` |
+| **Kỳ vọng (Expected)** | - AI **phải từ chối** đề xuất này.<br>- Cảnh báo lỗi nghiêm trọng: "CPU Intel (LGA1700) không thể lắp vào Mainboard AMD (AM5)".<br>- Đề xuất giải pháp sửa đổi (Đổi CPU sang AMD Ryzen hoặc đổi Main sang Intel).<br>- Cảnh báo rõ ràng ràng buộc vật lý không tương thích.<br>- Không cố gắng đề xuất các giải pháp "chữa cháy" vô lý, kiên quyết tuân thủ quy tắc phần cứng. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Cảnh báo rõ ràng ràng buộc vật lý.<br>- **Không phòng thủ:** Kiên quyết tuân thủ quy tắc.<br>- **Định dạng chuẩn:** Trả về cấu trúc mạch lạc, dễ hiểu. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Đánh giá độ an toàn của AI khi gặp tình huống lỗi)* |
+
+---
+
+#### Kịch bản TC-AI-05: Dẫn dắt hội thoại & Thu thập thông tin đầu vào
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra phản hồi mặc định khi người dùng khởi tạo luồng chat nhưng chưa cung cấp đủ tham số kỹ thuật. Đánh giá khả năng định hướng hội thoại (prompt guidance) của AI Agent. |
+| **Đầu vào (Input)** | `"Tôi muốn build PC."` |
+| **Kỳ vọng (Expected)** | - AI nhận diện yêu cầu thiếu thông tin, chủ động dừng việc đề xuất cấu hình ngẫu nhiên.<br>- Phản hồi mang tính định hướng, yêu cầu người dùng cung cấp ba nhóm thông tin cốt lõi: **ngân sách dự kiến**, **mục đích sử dụng chính** và **ưu tiên/tiêu chí đặc biệt**.<br>- Văn phong hỗ trợ, cấu trúc rõ ràng, tạo điều kiện thuận lợi cho bước nhập liệu tiếp theo.<br>- Không sinh nội dung thừa hoặc đề xuất linh kiện khi chưa đủ dữ liệu đầu vào. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Đặt câu hỏi rõ ràng, phân loại thông tin cần thiết theo thứ tự ưu tiên.<br>- **Không phòng thủ:** Chủ động hỗ trợ, không từ chối yêu cầu hay yêu cầu thông tin thừa.<br>- **Định dạng chuẩn:** Trả về cấu trúc mạch lạc, dễ đọc, phù hợp với luồng hội thoại tư vấn. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về độ khớp nội dung định hướng, tốc độ phản hồi, hoặc lỗi hiển thị nếu có)* |
+
+---
+
+### Nhóm 2: Kiểm thử theo phân khúc nhu cầu
+
+#### Kịch bản TC-AI-06: Gaming Esports (Ngân sách 12–15 triệu)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra khả năng tối ưu cấu hình cho tựa game e-sports nhẹ nhưng đòi hỏi FPS cao và độ trễ thấp, trong giới hạn ngân sách trung bình. |
+| **Đầu vào (Input)** | `"Mình cần build PC chơi game tầm 12-15 triệu, chủ yếu chơi Valorant và LOL."` |
+| **Kỳ vọng (Expected)** | - Ưu tiên CPU đơn nhân mạnh, GPU tầm trung phù hợp e-sports, RAM 16GB, SSD NVMe, nguồn 500W.<br>- Giải thích rõ tỷ lệ hiệu năng/giá, cảnh báo điểm nghẽn nếu ép GPU quá cao so với CPU.<br>- Không đề xuất linh kiện cao cấp hoặc VGA workstation vượt ngân sách.<br>- Gợi ý hướng nâng cấp nhẹ trong tương lai (thêm RAM, đổi VGA). |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Nêu rõ lý do chọn CPU/GPU dựa trên đặc thù e-sports (IPC cao, độ trễ thấp).<br>- **Không phòng thủ:** Chủ động cân đối ngân sách, không né tránh việc cảnh báo giới hạn phần cứng.<br>- **Định dạng chuẩn:** Cấu trúc rõ ràng, dễ đọc, phù hợp với luồng tư vấn. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về độ chính xác kỹ thuật, khả năng cân đối ngân sách hoặc lỗi phát sinh)* |
+
+---
+
+#### Kịch bản TC-AI-07: Văn phòng & Đa nhiệm (Ngân sách 8–10 triệu)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Đánh giá khả năng đề xuất cấu hình tiết kiệm, ổn định và tiết kiệm điện cho tác vụ văn phòng, duyệt web và xử lý bảng tính. |
+| **Đầu vào (Input)** | `"Mình muốn lắp máy làm văn phòng, xử lý Excel, Word, duyệt web, ngân sách khoảng 8-10 triệu."` |
+| **Kỳ vọng (Expected)** | - Ưu tiên CPU tích hợp đồ họa (APU hoặc Intel UHD), RAM 16GB, SSD 500GB, nguồn 400–450W, vỏ gọn nhẹ.<br>- Nhấn mạnh độ ổn định, khả năng đa nhiệm nhẹ và tiết kiệm điện năng.<br>- Không đề xuất GPU rời hoặc linh kiện gaming không cần thiết.<br>- Gợi ý tiêu chuẩn bảo hành/dịch vụ hậu mãi phù hợp môi trường doanh nghiệp. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Lý giải rõ tại sao iGPU đủ đáp ứng, tránh lãng phí chi phí.<br>- **Không phòng thủ:** Chủ động tối ưu chi phí, không đề xuất thừa tính năng.<br>- **Định dạng chuẩn:** Trả về cấu trúc mạch lạc, tập trung vào độ bền và ổn định. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về tính thực tế của cấu hình hoặc lỗi gợi ý linh kiện không phù hợp)* |
+
+---
+
+#### Kịch bản TC-AI-08: 3D Rendering & Dựng phim (Ngân sách 25–30 triệu)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Kiểm tra kiến thức chuyên sâu về phần cứng phục vụ render đa nhân, xử lý đồ họa nặng và làm việc với phần mềm sáng tạo nội dung. |
+| **Đầu vào (Input)** | `"Mình làm 3D rendering và dựng phim bằng Blender, Premiere, ngân sách 25-30 triệu."` |
+| **Kỳ vọng (Expected)** | - Đề xuất CPU nhiều nhân/luồng, GPU có VRAM lớn và hỗ trợ CUDA/OptiX, RAM 32GB+, SSD NVMe tốc độ cao, nguồn 650W+ chuẩn 80 Plus, tản nhiệt hiệu năng cao.<br>- Giải thích vai trò của VRAM và xung nhịp đa nhân trong render/video encoding.<br>- Cảnh báo nhiệt độ, điện năng tiêu thụ và khuyến nghị case thoáng khí.<br>- Phân bổ ngân sách hợp lý, ưu tiên GPU/VRAM và RAM dung lượng lớn. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Độ chính xác kỹ thuật cao, phân biệt rõ render CPU vs GPU.<br>- **Không phòng thủ:** Chủ động cảnh báo rủi ro nhiệt/nguồn, không đề xuất cấu hình thiếu cân bằng.<br>- **Định dạng chuẩn:** Cấu trúc chuyên nghiệp, thuật ngữ chuẩn xác. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về chiều sâu kỹ thuật hoặc sai sót trong phân bổ ngân sách)* |
+
+---
+
+#### Kịch bản TC-AI-09: Stream & Đồ họa kết hợp (Ngân sách 18–22 triệu)
+
+| Thành phần | Chi tiết |
+| :--- | :--- |
+| **Mục tiêu** | Đánh giá khả năng cân bằng tải giữa stream game và chỉnh sửa nội dung trên cùng một máy, tận dụng tính năng encoder phần cứng. |
+| **Đầu vào (Input)** | `"Mình vừa stream game vừa chỉnh sửa ảnh/video nhẹ, tầm 18-22 triệu."` |
+| **Kỳ vọng (Expected)** | - Đề xuất CPU có encoder tích hợp tốt (NVENC/AMD AMF), GPU tầm trung, RAM 32GB, SSD dung lượng lớn, nguồn 650W.<br>- Giải thích lợi ích của encoder phần cứng khi stream, phân bổ tài nguyên hợp lý giữa gaming và render.<br>- Gợi ý cấu hình single-PC tối ưu, cảnh báo nếu ép VGA quá cao gây nghẽn CPU khi stream.<br>- Nhấn mạnh tầm quan trọng của RAM và tốc độ ổ cứng khi xử lý đa nhiệm. |
+| **Tiêu chí đánh giá** | - **Giải thích hợp lý:** Cân bằng đa nhiệm, tận dụng đúng tính năng encoder, lý giải kỹ thuật rõ ràng.<br>- **Không phòng thủ:** Chủ động cảnh báo giới hạn single-PC, không thiên lệch quá mức về gaming hay render.<br>- **Định dạng chuẩn:** Cấu trúc mạch lạc, dễ áp dụng thực tế. |
+| **Kết quả thực tế** | <br>*(Dán ảnh chụp màn hình phản hồi của AI tại đây)*<br><br> |
+| **Hiệu năng** | **Thời gian phản hồi:** ... giây<br>**Trạng thái:** ✅ Đạt / ❌ Chưa đạt |
+| **Nhận xét** | *(Ghi chú về khả năng cân bằng workload hoặc lỗi đề xuất lệch trọng tâm)* |
+
+---
+
+## Bảng 4.X: Tổng hợp kết quả kiểm thử AI Agent
+
+| Mã kịch bản | Mục tiêu kiểm thử | Trạng thái | Thời gian TB (s) | Ghi chú |
+|:-----------:|:------------------|:----------:|:----------------:|:--------|
+| TC-AI-01 | Tư vấn cấu hình theo ngân sách |  | ... | ... |
+| TC-AI-02 | Kiểm tra tương thích phần cứng | ⬜ | ... | ... |
+| TC-AI-03 | Duy trì ngữ cảnh & cập nhật | ⬜ | ... | ... |
+| TC-AI-04 | Xử lý xung đột kỹ thuật | ⬜ | ... | ... |
+| TC-AI-05 | Dẫn dắt hội thoại | ⬜ | ... | ... |
+| TC-AI-06 | Gaming Esports (12-15M) | ⬜ | ... | ... |
+| TC-AI-07 | Văn phòng (8-10M) | ⬜ | ... | ... |
+| TC-AI-08 | 3D Rendering (25-30M) | ⬜ | ... | ... |
+| TC-AI-09 | Stream & Đồ họa (18-22M) | ⬜ | ... | ... |
+| **Tổng** | **9 kịch bản** | **.../9** | **...** | |
+
+---
+
+### 📌 Hướng dẫn sử dụng
+
+1. **Vị trí chèn:** Đặt toàn bộ 9 kịch bản vào mục `4.4.1.1. Kiểm thử chuyên sâu AI Agent` trong Chương 4.
+2. **Cách điền kết quả:** 
+   - Chạy thực nghiệm với từng prompt, chụp ảnh khung chat AI trả về.
+   - Dán ảnh vào ô `Kết quả thực tế`, đo thời gian loading/phản hồi từ browser hoặc network tab.
+   - Tick `✅ Đạt` nếu AI hỏi đủ thông tin, đề xuất linh kiện khớp nhu cầu & ngân sách, giải thích kỹ thuật rõ ràng. Tick `❌ Chưa đạt` nếu AI hallucinate (đề xuất sai socket/RAM), vượt ngân sách >15% hoặc né tránh cảnh báo kỹ thuật.
+3. **Lợi ích học thuật:** Chuỗi kịch bản này chứng minh hệ thống không chỉ "trả lời chat" mà còn **hiểu ngữ cảnh nghiệp vụ**, **tuân thủ ràng buộc phần cứng** và **tối ưu chi phí theo phân khúc người dùng** – đúng trọng tâm đóng góp của đề tài.
+
+Nếu bạn cần mình xuất toàn bộ 9 kịch bản này sang file Word/LaTeX với định dạng bảng chuẩn, font chữ đồng nhất và đánh số tự động, hoặc muốn bổ sung thêm bảng chấm điểm chi tiết (thang 1–5 cho từng tiêu chí), cứ báo mình nhé!

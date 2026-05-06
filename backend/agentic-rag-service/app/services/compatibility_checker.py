@@ -65,7 +65,8 @@ def validate_build(selected_products: List[Dict[str, Any]]) -> List[str]:
     warnings.extend(_check_ram_type(by_slot))
     warnings.extend(_check_igpu_safety(by_slot))
     warnings.extend(_check_m2_slot_count(by_slot, selected_products))
-    warnings.extend(_check_form_factor(by_slot))
+    # Skipped: case_type field is null for 89% of products, making validation unreliable
+    # warnings.extend(_check_form_factor(by_slot))
     warnings.extend(_check_cooler_socket(by_slot))
     warnings.extend(_check_cpu_mainboard_socket(by_slot))
 

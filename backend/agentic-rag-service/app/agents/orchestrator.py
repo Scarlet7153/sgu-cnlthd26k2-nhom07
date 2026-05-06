@@ -320,6 +320,135 @@ class OrchestratorAgent:
         self.default_max_iterations = default_max_iterations
         self.default_timeout_seconds = default_timeout_seconds
 
+    def _create_react_tools(self, result_state):
+        """Create tool functions for smolagents CodeAgent."""
+        from smolagents import tool
+
+        @tool
+        def search_products(query: str, max_budget: float = 100_000_000, purpose: str = "gaming") -> str:
+            """
+            Search for PC components.
+            
+            Args:
+                query: Search query describing the component type or need.
+                max_budget: Maximum price in VND.
+                purpose: Usage purpose (gaming, office, design, streaming).
+            """
+            import json
+            results = []
+            for slot in ("CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"):
+                try:
+                    docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                        slot=slot, budget_max=float(max_budget), target_price=max_budget * 0.3, limit=5,
+                    )
+                    for d in docs[:3]:
+                        results.append({"slot": slot, "name": OrchestratorAgent._sanitize_text(d.get("name", "")),
+                                        "price": OrchestratorAgent._to_number(d.get("price")) or 0})
+                except Exception:
+                    pass
+            return json.dumps(results[:30], ensure_ascii=False)
+
+        @tool
+        def build_pc(budget: float, purpose: str = "gaming", budget_min: float = 0.0) -> str:
+            """
+            Build a complete PC configuration.
+            
+            Args:
+                budget: Maximum budget in VND (e.g. 16000000 for 16M).
+                purpose: ONLY use one of: gaming, office, design, streaming.
+                    - gaming: chơi game, FPS, esports, stream game
+                    - design: đồ họa, render, video, 3D, blender, premiere, photoshop, thiết kế
+                    - office: văn phòng, excel, word, học tập, duyệt web
+                    - streaming: stream, content creator, youtuber, phát sóng, record
+                budget_min: Minimum budget for range (optional, set to 0 for single budget).
+            """
+            import json, traceback
+            try:
+                logger.info(f"[BUILD_PC] raw budget={budget!r} purpose={purpose!r} budget_min={budget_min!r}")
+                # ToolCallingAgent may pass args as JSON string or dict
+                if isinstance(budget, str) and budget.startswith('{'):
+                    try:
+                        args = json.loads(budget)
+                        budget = float(args.get('budget', budget))
+                        purpose = str(args.get('purpose', purpose))
+                        budget_min = float(args.get('budget_min', budget_min))
+                    except json.JSONDecodeError:
+                        budget = float(budget)
+                else:
+                    budget = float(budget)
+                    budget_min = float(budget_min)
+                
+                # For range budgets: build toward the MIDDLE of the range
+                if budget_min > 0 and budget_min < budget * 0.9:
+                    effective_budget = int((budget_min + budget) / 2)  # Midpoint
+                    ctx = {"budget": f"{int(effective_budget / 1_000_000)} trieu", "purpose": str(purpose)}
+                else:
+                    effective_budget = int(budget)
+                    ctx = {"budget": f"{int(effective_budget / 1_000_000)} trieu", "purpose": purpose}
+                
+                consts = OrchestratorAgent._extract_budget_constraints(ctx, f"Xay dung PC {purpose} {int(effective_budget)}")
+                # Use proper context detection for mode flags (handles arbitrary purpose strings)
+                temp_ctx = {"purpose": str(purpose)}
+                for m in ("gaming_mode", "office_mode", "design_mode", "streaming_mode"):
+                    mode_name = m.replace("_mode", "")
+                    consts[m] = mode_name in str(purpose).lower()
+                # Override with robust detection for cases like "3D rendering and video editing"
+                if not any((consts.get("gaming_mode"), consts.get("design_mode"), consts.get("streaming_mode"), consts.get("office_mode"))):
+                    consts["design_mode"] = OrchestratorAgent._is_design_context(temp_ctx, str(purpose))
+                    consts["streaming_mode"] = OrchestratorAgent._is_streaming_context(temp_ctx, str(purpose))
+                    consts["gaming_mode"] = OrchestratorAgent._is_gaming_context(temp_ctx, str(purpose))
+                    consts["office_mode"] = OrchestratorAgent._is_office_context(temp_ctx, str(purpose))
+                search_query = f"Xay dung PC {purpose} {int(effective_budget)}"
+                db_obs = self.db_agent.run(AgentTask(query=search_query, context=ctx, max_results=24))
+                evidences = db_obs.evidences if db_obs and hasattr(db_obs, 'evidences') else []
+                products = self._build_product_suggestions(evidences, {}, ctx, search_query)
+                primary = self._select_primary_build(products, consts)
+                for fn in (self._ensure_required_primary_slots,
+                           self._rebalance_mainboard_cpu_with_db,
+                           self._rebalance_cpu_gpu_with_db, self._lift_primary_to_target):
+                    primary = fn(primary, consts, ctx)
+                primary = self._enforce_budget_cap(primary, consts, ctx, products)
+                total = self._sum_product_prices(primary)
+                prod_list = [{"slot": p.slot, "name": p.name, "price": p.price, "productId": p.product_id,
+                              "image": p.image, "url": p.url}
+                             for p in primary]
+                result_state.append({"products": prod_list, "primary_build": prod_list, "total": total,
+                                     "budgetExact": effective_budget,
+                                     "context_update": {"budget": str(effective_budget), "purpose": purpose, "budgetExact": effective_budget}})
+                return json.dumps({"message": f"BUILT PC {purpose} {effective_budget:,} VND. TOTAL: {total:,}. {len(prod_list)} parts."}, ensure_ascii=False)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return json.dumps({"message": f"BUILD ERROR: {e}"})
+
+        @tool
+        def find_replacements(slot: str, budget: float, purpose: str = "gaming", current_build_json: str = "[]") -> str:
+            """
+            Find replacement components for a given slot.
+            
+            Args:
+                slot: Component slot to replace (CPU, GPU, RAM, SSD, etc.).
+                budget: Total budget in VND.
+                purpose: Usage purpose (gaming, office, design, streaming).
+                current_build_json: JSON string of current build components.
+            """
+            import json
+            try:
+                current_build = json.loads(current_build_json) if current_build_json else []
+                ctx = {"budget": str(int(budget)), "purpose": purpose}
+                if current_build:
+                    ctx["selectedComponents"] = current_build
+                replacements = self._build_replacement_slot_products(slot=slot, context=ctx, compatibility={})
+                repl_list = [{"slot": p.slot, "name": p.name, "price": p.price, "productId": p.product_id}
+                             for p in replacements]
+                result_state.append({"products": repl_list,
+                                     "context_update": {"budget": str(int(budget)), "purpose": purpose}})
+                return json.dumps({"message": f"FOUND {len(repl_list)} replacements for {slot}."}, ensure_ascii=False)
+            except Exception as e:
+                return json.dumps({"message": f"REPLACE ERROR: {e}"})
+
+        return [search_products, build_pc, find_replacements]
+
     def handle(
         self,
         query: str,
@@ -341,11 +470,16 @@ class OrchestratorAgent:
         db_max_results = 36
         started_at = time.monotonic()
 
-        # Early Exit for Greetings or Missing Info to avoid unnecessary Planning/DB/Web searches
+        # Early Exit for Greetings or compatibility questions
         is_greeting = self._is_greeting_intent(query)
-        needs_clarification = self._is_clarification_needed(query, context)
-        
-        if is_greeting or needs_clarification:
+        has_specific_component = bool(
+            re.search(r'\b(core\s*i\d|ryzen\s*\d|i[3579]-\d{3,5}|r[579]\s*\d)\b', query, re.IGNORECASE)
+        )
+        is_compatibility_question = bool(
+            re.search(r'(lắp\s*(được|với)|tương\s*thích|hợp\s*(với|không)|ghép\s*(được|cặp))', query, re.IGNORECASE)
+        )
+
+        if is_greeting:
             traces.append(
                 AgentActionTrace(
                     agent="orchestrator",
@@ -378,6 +512,26 @@ class OrchestratorAgent:
                 citations=[],
                 trace=ChatTrace(iterations=0, actions=traces),
             )
+        elif is_compatibility_question and has_specific_component:
+            traces.append(
+                AgentActionTrace(
+                    agent="orchestrator",
+                    action="intent_detection",
+                    status="success",
+                    observation="Compatibility question detected. Skipping build.",
+                )
+            )
+            return ChatResponse(
+                answer="Xin lỗi, tôi chưa thể kiểm tra tương thích chi tiết giữa các linh kiện cụ thể. Vui lòng tham khảo thông số kỹ thuật từ nhà sản xuất.",
+                confidence=0.5,
+                products=[],
+                primaryBuild=[],
+                alternativesBySlot={},
+                estimatedBuildTotal=0,
+                budgetStatus=None,
+                citations=[],
+                trace=ChatTrace(iterations=0, actions=traces),
+            )
 
         plan_note = self.smolagent_adapter.summarize_plan(query=query, context=context)
         if plan_note:
@@ -389,6 +543,43 @@ class OrchestratorAgent:
                     observation=plan_note,
                 )
             )
+
+        # --- ReAct loop via smolagents (if enabled) ---
+        budget_constants = OrchestratorAgent._extract_budget_constraints(context, query)
+        if self.smolagent_adapter.enabled:
+            try:
+                result_state = []
+                react_result = self.smolagent_adapter.run_react(
+                    query=query, context=context,
+                    tools=self._create_react_tools(result_state),
+                    llm_gateway=self.llm_gateway,
+                    result_state=result_state,
+                )
+                if react_result and (result_state or react_result.get("answer")):
+                    tool_result = result_state[0] if result_state else {}
+                    products_data = tool_result.get("products", tool_result.get("primary_build", []))
+                    cu_data = tool_result.get("context_update") or {}
+                    context_update = None
+                    if cu_data:
+                        context_update = ChatContext(
+                            budget=cu_data.get("budget"), purpose=cu_data.get("purpose"),
+                            budgetExact=int(cu_data.get("budgetExact")) if cu_data.get("budgetExact") else None,
+                        )
+                    primary = [ProductSuggestion(**p) if isinstance(p, dict) else p for p in products_data]
+                    total = tool_result.get("total") or react_result.get("total") or self._sum_product_prices(primary)
+                    budget_status_val = self._estimate_budget_status(total, budget_constants) if total else None
+                    traces.append(AgentActionTrace(agent="orchestrator", action="smolagents_react",
+                        status="success", observation=f"ReAct: {len(primary)} products, total={total}"))
+                    return ChatResponse(answer=self._sanitize_answer_text(str(react_result.get("answer", ""))),
+                        confidence=0.8, products=primary, primaryBuild=primary, alternativesBySlot={},
+                        estimatedBuildTotal=total, budgetStatus=budget_status_val,
+                        citations=[], contextUpdate=context_update,
+                        trace=ChatTrace(iterations=1, actions=traces))
+                else:
+                    raise RuntimeError(f"CodeAgent failed. result_state empty, answer: {str(react_result.get('answer',''))[:100]}")
+            except Exception as e:
+                logger.exception(f"CodeAgent exception: {e}")
+                raise RuntimeError(f"CodeAgent crashed: {e}")
 
         while iterations < max_iters:
             if (time.monotonic() - started_at) >= self.default_timeout_seconds:
@@ -1026,9 +1217,12 @@ class OrchestratorAgent:
             
         present_slots = {(item.slot or "").upper() for item in primary if item.slot}
         missing_slots = [slot for slot in required_slots if slot not in present_slots]
-        if not missing_slots:
-            return primary
-
+        
+        # For gaming/design/streaming: process CPU before GPU to ensure CPU gets budget first
+        if gaming_mode or design_mode or streaming_mode:
+            slot_order = ["CPU", "MAINBOARD", "RAM", "SSD", "PSU", "GPU", "CASE", "COOLER"]
+            missing_slots.sort(key=lambda s: slot_order.index(s) if s in slot_order else 99)
+        
         budget_max = constraints.get("budget_max")
         if not isinstance(budget_max, (int, float)) or budget_max <= 0:
             return primary
@@ -1179,6 +1373,7 @@ class OrchestratorAgent:
                     primary,
                     required_price=float(best_over_budget_core.price or 0),
                     ceiling=float(ceiling),
+                    constraints=constraints,
                 )
                 current_total = self._sum_product_prices(primary)
                 if current_total + float(best_over_budget_core.price or 0) <= ceiling:
@@ -1261,6 +1456,7 @@ class OrchestratorAgent:
                                 primary,
                                 required_price=float(candidate_price),
                                 ceiling=float(ceiling),
+                                constraints=constraints,
                             )
                             current_total = self._sum_product_prices(primary)
                         if current_total + candidate_price > ceiling:
@@ -1292,12 +1488,21 @@ class OrchestratorAgent:
         primary: List[ProductSuggestion],
         required_price: float,
         ceiling: float,
+        constraints: Optional[Dict[str, Optional[float]]] = None,
     ) -> List[ProductSuggestion]:
         if required_price <= 0:
             return primary
 
         working = list(primary)
-        drop_priority = ["COOLER", "CASE", "GPU"]
+        gaming_mode = bool((constraints or {}).get("gaming_mode"))
+        design_mode = bool((constraints or {}).get("design_mode"))
+        streaming_mode = bool((constraints or {}).get("streaming_mode"))
+        
+        # Protect GPU for gaming/design/streaming builds
+        if gaming_mode or design_mode or streaming_mode:
+            drop_priority = ["COOLER", "CASE"]
+        else:
+            drop_priority = ["COOLER", "CASE", "GPU"]
 
         def _total(items: List[ProductSuggestion]) -> float:
             return float(OrchestratorAgent._sum_product_prices(items))
@@ -2298,7 +2503,7 @@ class OrchestratorAgent:
                         best_candidate = min(candidates, key=lambda c: abs((OrchestratorAgent._to_number(c.price) or 0) - target_price))
                 primary.append(best_candidate)
             else:
-                primary.append(candidates[0])
+                best_candidate = candidates[0]; primary.append(best_candidate)
             used_slots.add(slot)
             
             # Track selected CPU for socket compatibility check with Mainboard
@@ -4373,15 +4578,16 @@ class OrchestratorAgent:
         budget_min: Optional[float],
         budget_max: Optional[float],
     ) -> tuple[Optional[float], Optional[float]]:
-        if not isinstance(budget_min, (int, float)) or not isinstance(budget_max, (int, float)):
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
             return (None, None)
-        if budget_min <= 0 or budget_max <= 0 or budget_max <= budget_min:
+        if not isinstance(budget_min, (int, float)) or budget_min <= 0:
+            return (budget_max * 0.85, budget_max * 0.95)
+        if budget_max <= budget_min:
             return (None, None)
 
         budget_text = context.get("budget") if isinstance(context.get("budget"), str) else ""
         normalized = OrchestratorAgent._normalize_for_matching(budget_text) if budget_text else ""
 
-        # Explicit requirement: 10-15M should target around 12-13M.
         if (
             abs(budget_min - 10_000_000) < 1
             and abs(budget_max - 15_000_000) < 1
@@ -4389,8 +4595,7 @@ class OrchestratorAgent:
         ):
             return (12_000_000.0, 13_000_000.0)
 
-        if budget_min is None or budget_min < (budget_max * 0.1):
-            # Single budget target: aim high (85% to 95%)
+        if budget_min < (budget_max * 0.1):
             return (budget_max * 0.85, budget_max * 0.95)
 
         span = budget_max - budget_min
@@ -4596,6 +4801,16 @@ class OrchestratorAgent:
             if price is not None:
                 total += max(0.0, price) * max(1.0, qty)
         return total
+
+    @staticmethod
+    def _is_within_slot_target_cap(price, slot, constraints):
+        budget_max = constraints.get("budget_max") if constraints else None
+        if not isinstance(budget_max, (int, float)) or budget_max <= 0:
+            return True
+        if not slot or price is None or price <= 0:
+            return True
+        ratio = PRIMARY_BUILD_TARGET_RATIO.get(str(slot).upper(), 0.20)
+        return price <= budget_max * ratio * 1.5
 
     @staticmethod
     def _is_within_budget_constraints(
@@ -5379,12 +5594,14 @@ class OrchestratorAgent:
             return primary
 
         current_total = self._sum_product_prices(primary)
-        hard_cap = budget_max * 1.07  # 7% tolerance
+        hard_cap = budget_max  # No tolerance — stay within budget
         if current_total <= hard_cap:
             return primary
 
         # Target: get under hard_cap but stay above 90% of budget
         target_floor = budget_max * 0.90
+
+        selected_brand = self._extract_selected_brand(context)
 
         # Build lookup from all_products
         by_slot: Dict[str, List[ProductSuggestion]] = {}
@@ -5407,18 +5624,53 @@ class OrchestratorAgent:
             current_item = primary[idx]
             current_price = self._to_number(current_item.price) or 0.0
             
-            # Find cheaper alternatives
+            # Find cheaper alternatives from all_products first
             candidates = by_slot.get(slot, [])
             cheaper = [c for c in candidates if (self._to_number(c.price) or 0) < current_price and c.product_id != current_item.product_id]
-            cheaper.sort(key=lambda c: -(self._to_number(c.price) or 0))  # Sort descending to pick closest cheaper option
+            cheaper.sort(key=lambda c: -(self._to_number(c.price) or 0))
             
+            replaced = False
             for candidate in cheaper:
                 candidate_price = self._to_number(candidate.price) or 0.0
                 new_total = current_total - current_price + candidate_price
                 if new_total <= hard_cap and new_total >= target_floor:
                     primary[idx] = candidate
                     current_total = new_total
+                    replaced = True
                     break
+
+            # Fallback: query DB for cheaper alternatives
+            if not replaced:
+                db_cheaper = self.db_agent.mongo_service.get_alternative_products_for_slot(
+                    slot=slot,
+                    budget_max=float(current_price),
+                    limit=20,
+                    selected_brand=selected_brand,
+                )
+                db_cheaper.sort(key=lambda d: -(self._to_number(d.get("price")) or 0))
+                for doc in db_cheaper:
+                    cand_price = self._to_number(doc.get("price"))
+                    if cand_price is None or cand_price <= 0 or cand_price >= current_price:
+                        continue
+                    candidate_id = str(doc.get("_id", ""))
+                    if not candidate_id or candidate_id == current_item.product_id:
+                        continue
+                    new_total = current_total - current_price + cand_price
+                    if new_total <= hard_cap and new_total >= target_floor:
+                        primary[idx] = ProductSuggestion(
+                            productId=candidate_id,
+                            categoryId=self._normalize_category_id(doc.get("categoryId")),
+                            slot=slot,
+                            name=self._sanitize_text(doc.get("name", "")),
+                            price=int(cand_price),
+                            image=doc.get("image"),
+                            url=doc.get("url"),
+                            socket=OrchestratorAgent._extract_socket_from_raw(doc),
+                            reason="Ha cap de vua ngan sach",
+                        )
+                        current_total = new_total
+                        replaced = True
+                        break
 
         return primary
 
