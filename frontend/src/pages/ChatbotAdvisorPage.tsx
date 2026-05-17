@@ -130,6 +130,16 @@ function formatVND(amount: number): string {
   return amount.toLocaleString("vi-VN") + " ₫";
 }
 
+function formatBudgetShort(amount: number): string {
+  if (amount >= 1_000_000) {
+    const millions = amount / 1_000_000;
+    if (Number.isInteger(millions)) return `${millions} triệu`;
+    return `${millions.toFixed(1).replace(/\.0$/, "")} triệu`;
+  }
+  if (amount >= 1_000) return `${Math.round(amount / 1_000)}k`;
+  return `${amount}`;
+}
+
 const usageOptions = ["Văn phòng", "Gaming", "Đồ họa 3D", "Stream"];
 const PURPOSE_MAP: Record<string, string> = {
   gaming: "Gaming",
@@ -148,6 +158,7 @@ const EMPTY_FILTERS: HiddenContext = {
   budget: null,
   purpose: null,
   brand: null,
+  budgetExact: undefined,
 };
 
 const initialMessages: ChatMessage[] = [
@@ -172,13 +183,14 @@ function getAdvisorChatStateStorageKey(sessionId: string): string {
 
 function sanitizeFilters(filters: unknown): HiddenContext {
   if (!filters || typeof filters !== "object") {
-    return { budget: null, purpose: null, brand: null };
+    return { budget: null, purpose: null, brand: null, budgetExact: undefined };
   }
   const value = filters as Partial<HiddenContext>;
   return {
     budget: typeof value.budget === "string" ? value.budget : null,
     purpose: typeof value.purpose === "string" ? value.purpose : null,
     brand: typeof value.brand === "string" ? value.brand : null,
+    budgetExact: typeof value.budgetExact === "number" ? value.budgetExact : undefined,
   };
 }
 
@@ -706,6 +718,34 @@ export default function ChatbotAdvisorPage() {
     });
   }, [sessionId, currentFilters, messages, input]);
 
+  // Load context from MongoDB on mount, merge with localStorage filters
+  useEffect(() => {
+    let cancelled = false;
+    const loadRemoteContext = async () => {
+      try {
+        const res = await advisorClient.get("/chat/context", {
+          params: { session_id: sessionId, account_id: user?.id },
+        });
+        if (cancelled) return;
+        const remote = res.data;
+        if (remote && (remote.purpose || remote.budget_text || remote.budget_exact || remote.budget_min || remote.budget_max)) {
+          setCurrentFilters((prev) => {
+            const merged = { ...prev };
+            if (!merged.purpose && remote.purpose) merged.purpose = remote.purpose;
+            if (!merged.budget && remote.budget_text) merged.budget = remote.budget_text;
+            if (!merged.budgetExact && remote.budget_exact) merged.budgetExact = remote.budget_exact;
+            if (!merged.brand && remote.brand) merged.brand = remote.brand;
+            return merged;
+          });
+        }
+      } catch {
+        // Ignore - fallback to localStorage only
+      }
+    };
+    loadRemoteContext();
+    return () => { cancelled = true; };
+  }, [sessionId, user?.id]);
+
   const addTextMessage = (role: ChatRole, content: string) => {
     setMessages((prev) => [
       ...prev,
@@ -784,10 +824,11 @@ export default function ChatbotAdvisorPage() {
     };
   }, [sessionId]);
 
-  const updateFilter = (field: keyof HiddenContext, value: string) => {
-    // Clear exact budget when user manually picks a range
+  const updateFilter = async (field: keyof HiddenContext, value: string) => {
     const extra = field === "budget" ? { budgetExact: undefined } : {};
-    setCurrentFilters((prev) => ({ ...prev, [field]: value, ...extra }));
+    const next = { ...currentFilters, [field]: value, ...extra };
+    setCurrentFilters(next);
+    await persistContextUpdate(next);
   };
 
   const persistContextUpdate = async (filters: HiddenContext) => {
@@ -797,6 +838,7 @@ export default function ChatbotAdvisorPage() {
         accountId: user?.id,
         context: {
           budget: filters.budget,
+          budgetExact: filters.budgetExact,
           purpose: filters.purpose,
           brand: filters.brand,
         },
@@ -820,8 +862,9 @@ export default function ChatbotAdvisorPage() {
   };
 
   const clearAllFilters = async () => {
-    setCurrentFilters(EMPTY_FILTERS);
-    await persistContextUpdate(EMPTY_FILTERS);
+    const cleared = { ...EMPTY_FILTERS, budgetExact: undefined };
+    setCurrentFilters(cleared);
+    await persistContextUpdate(cleared);
     toast({
       title: "Đã xóa tiêu chí",
       description: "Bộ lọc đã được đặt lại.",
@@ -1118,25 +1161,35 @@ export default function ChatbotAdvisorPage() {
                     Ngân sách
                   </h2>
                   <div className="flex flex-wrap gap-1.5">
-                    {budgetOptions.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => updateFilter("budget", opt)}
-                        className={`rounded-full border px-2 py-1 text-[10px] font-medium transition sm:px-2.5 sm:text-[11px] ${
-                          currentFilters.budget === opt
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
+                    {budgetOptions.map((opt) => {
+                      const isActive = currentFilters.budget === opt;
+                      const isHint = !isActive && !!currentFilters.budgetExact && mapExactBudgetToRange(currentFilters.budgetExact) === opt;
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => updateFilter("budget", opt)}
+                          className={`rounded-full border px-2 py-1 text-[10px] font-medium transition sm:px-2.5 sm:text-[11px] ${
+                            isActive
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : isHint
+                              ? "border-primary/40 bg-primary/10 text-primary"
+                              : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
                     {currentFilters.budgetExact && (
                       <button
-                        onClick={() => setCurrentFilters((prev) => ({ ...prev, budgetExact: undefined, budget: prev.budget || null }))}
+                        onClick={async () => {
+                          const next = { ...currentFilters, budgetExact: undefined, budget: currentFilters.budget || null };
+                          setCurrentFilters(next);
+                          await persistContextUpdate(next);
+                        }}
                         className={`rounded-full border px-2 py-1 text-[10px] font-medium transition sm:px-2.5 sm:text-[11px] border-primary bg-primary text-primary-foreground`}
                       >
-                        {formatVND(currentFilters.budgetExact)}
+                        {formatBudgetShort(currentFilters.budgetExact)}
                       </button>
                     )}
                   </div>

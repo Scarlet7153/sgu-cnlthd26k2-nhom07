@@ -100,10 +100,22 @@ class ChatHistoryService:
 
         self.collection.update_one({"session_id": session_id}, update_doc, upsert=True)
 
+    def get_context_summary(self, session_id: str, account_id: str | None) -> Dict[str, Any] | None:
+        if self.collection is None:
+            return None
+        query = {"session_id": session_id}
+        if account_id:
+            query["account_id"] = account_id
+        doc = self.collection.find_one(query, {"context_summary": 1})
+        if doc and doc.get("context_summary"):
+            return doc["context_summary"]
+        return None
+
     @staticmethod
     def _context_summary(context: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "budget_text": context.get("budget"),
+            "budget_exact": context.get("budgetExact"),
             "purpose": context.get("purpose"),
             "brand": context.get("brand"),
             "budget_min": context.get("budget_min"),

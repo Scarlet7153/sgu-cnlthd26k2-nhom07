@@ -116,6 +116,7 @@ class LLMGatewayModelWrapper:
     def _call_via_completion(self, messages, extra_kwargs=None):
         from litellm import completion
         import os
+        import json
         
         valid_roles = {"system", "user", "assistant", "tool", "function"}
         clean = []
@@ -163,20 +164,57 @@ class LLMGatewayModelWrapper:
                 })
             if converted:
                 extra["tools"] = converted
-        response = completion(model=self.model_id, api_key=os.environ.get('LITELLM_API_KEY', ''), messages=clean, timeout=120, **extra)
-        raw_message = response.choices[0].message
-        cnt = raw_message.content
-        native_tool_calls = getattr(raw_message, 'tool_calls', None)
-        
-        tool_calls_local = native_tool_calls
-        
+        # Some models ignore tools when system role is present (gpt-5.x on chiasegpu)
+        # Only merge for models known to need it, not for models that work with system+tools
+        needs_merge = any(x in self.model_id.lower() for x in ("gpt-5.", "gpt-4."))
+        if extra.get("tools") and needs_merge:
+            system_msgs = [m for m in clean if m["role"] == "system"]
+            if system_msgs:
+                sys_content = system_msgs[0]["content"]
+                clean = [m for m in clean if m["role"] != "system"]
+                for m in clean:
+                    if m["role"] == "user":
+                        m["content"] = sys_content + "\n\n" + m["content"]
+                        break
+        response = completion(model=self.model_id, api_key=os.environ.get('LITELLM_API_KEY', ''), messages=clean, timeout=120, temperature=0, stream=True, **extra)
+        # Collect streaming chunks
+        raw_message = None
+        content_parts = []
+        tool_calls_by_id = {}
+        for chunk in response:
+            if chunk.choices and chunk.choices[0].delta:
+                delta = chunk.choices[0].delta
+                c = delta.content
+                if c:
+                    content_parts.append(c)
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index if tc.index is not None else 0
+                        if idx not in tool_calls_by_id:
+                            tool_calls_by_id[idx] = {'id': tc.id or '', 'name': '', 'arguments': ''}
+                        if tc.id:
+                            tool_calls_by_id[idx]['id'] = tc.id
+                        if tc.function and tc.function.name:
+                            tool_calls_by_id[idx]['name'] += tc.function.name
+                        if tc.function and tc.function.arguments:
+                            tool_calls_by_id[idx]['arguments'] += tc.function.arguments
+        # Build fake message
+        from dataclasses import dataclass
         @dataclass
         class Msg:
-            content = cnt
+            content: str = ""
             role: str = "assistant"
-            tool_calls = tool_calls_local
-            raw = raw_message
-        return Msg()
+            tool_calls: list = None
+            raw: object = None
+        cnt = "".join(content_parts)
+        raw_message = response if hasattr(response, 'choices') else None
+        tool_calls_local = None
+        if tool_calls_by_id:
+            converted = []
+            for tc in sorted(tool_calls_by_id.values(), key=lambda x: list(tool_calls_by_id.keys())[0]):
+                converted.append(FakeToolCall(tc['name'], tc['arguments']))
+            tool_calls_local = converted
+        return Msg(content=cnt, tool_calls=tool_calls_local, raw=raw_message)
 
 
 class SmolAgentAdapter:
@@ -192,33 +230,37 @@ class SmolAgentAdapter:
         from smolagents import ToolCallingAgent
 
         model = LLMGatewayModelWrapper(llm_gateway)
-        agent = ToolCallingAgent(tools=list(tools), model=model, max_steps=1)
         ctx_str = json.dumps(context, default=str, ensure_ascii=False)
-        has_selected = isinstance(context, dict) and bool(context.get("selectedComponents"))
-        if has_selected:
-            # Session upgrade: force build_pc, don't rely on model to choose
-            task = (
-                f"Context: {ctx_str}\n"
-                f"Query: {query}\n\n"
-                "CRITICAL: Build a new PC using build_pc with the budget and purpose from the context.\n"
-                "Do NOT analyze compatibility. Just call build_pc.\n"
-            )
-        else:
-            task = (
-                f"Context: {ctx_str}\n"
-                f"Query: {query}\n\n"
-                "Rules (follow in order):\n"
-                "1. If user asks for specific components (e.g. 'gợi ý Mainboard', 'RAM phù hợp'): call search_products with a descriptive query.\n"
-                "2. If budget+purpose given: call build_pc. Map user intent to EXACTLY one of: gaming, office, design, streaming.\n"
-                "   - đồ họa/render/video/3D/blender → design\n"
-                "   - văn phòng/excel/word/web → office\n"
-                "   - game/FPS/esports → gaming\n"
-                "   - stream/youtuber/record → streaming\n"
-                "3. If budget/purpose missing: call final_answer asking for them.\n"
-                "Budget ranges: '25-30 trieu' -> budget=30000000 budget_min=25000000.\n"
-            )
-        result = agent.run(task)
+        agent = ToolCallingAgent(tools=list(tools), model=model, max_steps=1)
         
+        task = (
+            f"Context: {ctx_str}\n"
+            f"Query: {query}\n\n"
+            "Rules (follow in order):\n"
+            "1. If user asks about a specific product or component — price, availability, "
+            "recommendations, comparisons (e.g. 'RTX 4060 giá bao nhiêu', 'gợi ý Mainboard', "
+            "'RAM DDR5 nào tốt', 'i5-13600K bao nhiêu tiền'): "
+            "call search_products with slot=<component type> and a descriptive query.\n"
+            "2. If user wants to REPLACE/SWAP a component (e.g. 'đổi GPU', 'thay case', "
+            "'bỏ PSU', 'case này xấu'): call find_replacements.\n"
+            "   - Pass current_build_json with the selected components from context.\n"
+            "3. If user wants to BUILD/LAP/UPGRADE PC:\n"
+            "   - FIRST check Context JSON for budget/budgetExact and purpose fields.\n"
+            "   - If BOTH budget (or budgetExact) AND purpose exist in Context: call build_pc immediately.\n"
+            "   - If budget is missing: call final_answer asking for budget only (do NOT ask purpose if already in Context).\n"
+            "   - If purpose is missing: call final_answer asking for purpose only (do NOT ask budget if already in Context).\n"
+            "   - When calling build_pc, map purpose to EXACTLY one of: gaming, office, design, streaming.\n"
+            "     đồ họa/render/video/3D/blender → design\n"
+            "     văn phòng/excel/word/web → office\n"
+            "     game/FPS/esports/chơi game → gaming\n"
+            "     stream/youtuber/record → streaming\n"
+            "4. If user asks conceptual/educational questions unrelated to specific products "
+            "(e.g. 'CPU là gì', 'DDR4 và DDR5 khác nhau thế nào'): call final_answer to answer directly.\n"
+            "   Do NOT use final_answer for product price or availability — use search_products instead.\n"
+            "Budget ranges: '25-30 trieu' -> budget=30000000 budget_min=25000000.\n"
+        )
+        result = agent.run(task)
+
         data = result_state[0] if result_state else {}
         prod_list = data.get("products", data.get("primary_build", []))
         total = data.get("total", 0)
@@ -227,15 +269,92 @@ class SmolAgentAdapter:
         if ctx_upd is None and budget_exact:
             purpose = context.get("purpose", "gaming") if isinstance(context, dict) else "gaming"
             ctx_upd = {"budget": str(budget_exact), "purpose": purpose, "budgetExact": budget_exact}
-        
-        if prod_list:
-            parts_lines = "\n".join([f'  - {p["slot"]}: {p["name"]} ({p["price"]:,} VND)' for p in prod_list])
-            answer = f"Đã xây dựng PC với tổng chi phí {total:,} VND. Linh kiện:\n{parts_lines}"
-        elif result is not None and str(result) not in ("None", ""):
-            answer = str(result)
+
+        # Always propagate known context (purpose/budget) even when LLM is asking for missing info
+        if ctx_upd is None and isinstance(context, dict):
+            known_purpose = context.get("purpose")
+            known_budget = context.get("budgetExact") or context.get("budget")
+            if known_purpose or known_budget:
+                ctx_upd = {}
+                if known_purpose:
+                    ctx_upd["purpose"] = known_purpose
+                if known_budget:
+                    if isinstance(known_budget, (int, float)):
+                        ctx_upd["budgetExact"] = int(known_budget)
+                    else:
+                        ctx_upd["budget"] = str(known_budget)
+
+        # Auto-extract purpose/budget from query when context is empty
+        if ctx_upd is None and isinstance(context, dict) and not context.get("purpose") and not context.get("budgetExact") and not context.get("budget"):
+            query_lower = query.lower()
+            auto_purpose = None
+            if any(w in query_lower for w in ["chơi game", "gaming", "game", "fps", "esports"]):
+                auto_purpose = "gaming"
+            elif any(w in query_lower for w in ["đồ họa", "do hoa", "render", "video", "3d", "blender", "photoshop", "thiết kế", "thiet ke"]):
+                auto_purpose = "design"
+            elif any(w in query_lower for w in ["văn phòng", "van phong", "excel", "word", "học tập", "duyet web", "office"]):
+                auto_purpose = "office"
+            elif any(w in query_lower for w in ["stream", "youtuber", "record", "phát sóng", "content creator"]):
+                auto_purpose = "streaming"
+
+            import re
+            budget_match = re.search(r'(\d+)\s*(triệu|trieu|tr|million|m)\b', query_lower)
+            auto_budget = None
+            if budget_match:
+                amount = int(budget_match.group(1))
+                if amount < 1000:
+                    auto_budget = amount * 1_000_000
+                else:
+                    auto_budget = amount
+
+            if auto_purpose or auto_budget:
+                ctx_upd = {}
+                if auto_purpose:
+                    ctx_upd["purpose"] = auto_purpose
+                if auto_budget:
+                    ctx_upd["budgetExact"] = auto_budget
+                    ctx_upd["budget"] = f"{auto_budget // 1_000_000} trieu"
+
+        is_search_query = result is not None and "Tìm thấy" in str(result)
+
+        import re
+        def strip_markdown(text):
+            text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+            text = re.sub(r'\*(.+?)\*', r'\1', text)
+            text = re.sub(r'__(.+?)__', r'\1', text)
+            text = re.sub(r'_(.+?)_', r'\1', text)
+            text = re.sub(r'~~(.+?)~~', r'\1', text)
+            return text
+
+        # Handle case where LLM outputs JSON instead of plain text (e.g. when final_answer tool missing)
+        result_str = str(result) if result is not None else ""
+        try:
+            parsed_json = json.loads(result_str)
+            if isinstance(parsed_json, dict) and "answer" in parsed_json:
+                result_str = parsed_json["answer"]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        if is_search_query:
+            answer = strip_markdown(result_str)
+            if result_state and len(result_state) > 0:
+                result_state[0] = {"products": prod_list, "total": 0}
         else:
-            answer = "Tôi cần thêm thông tin về ngân sách và nhu cầu của bạn để tư vấn PC phù hợp."
-        
+            if result_str and len(result_str) > 20 and "giá" in result_str.lower():
+                answer = strip_markdown(result_str)
+                if result_state and len(result_state) > 0:
+                    result_state[0] = {"products": prod_list, "total": 0}
+            elif prod_list:
+                if result_str and result_str not in ("None", ""):
+                    answer = strip_markdown(result_str)
+                else:
+                    parts_lines = "\n".join([f'  - {p["slot"]}: {p["name"]} ({p["price"]:,} VND)' for p in prod_list])
+                    answer = f"Đã xây dựng PC với tổng chi phí {total:,} VND. Linh kiện:\n{parts_lines}"
+            elif result_str and result_str not in ("None", ""):
+                answer = strip_markdown(result_str)
+            else:
+                answer = "Tôi cần thêm thông tin về ngân sách và nhu cầu của bạn để tư vấn PC phù hợp."
+
         return {"answer": answer, "products": prod_list, "primary_build": prod_list, "context_update": ctx_upd, "total": total}
 
     def summarize_plan(self, query, context):

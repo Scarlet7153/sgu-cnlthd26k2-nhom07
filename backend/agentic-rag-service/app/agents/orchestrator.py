@@ -325,28 +325,61 @@ class OrchestratorAgent:
         from smolagents import tool
 
         @tool
-        def search_products(query: str, max_budget: float = 100_000_000, purpose: str = "gaming") -> str:
+        def search_products(query: str, slot: str = "", max_budget: float = 100_000_000, purpose: str = "gaming") -> str:
             """
             Search for PC components.
             
             Args:
-                query: Search query describing the component type or need.
+                query: Search query (e.g. 'RTX 4060', 'mainboard cho i5').
+                slot: Component slot to filter. Leave empty to search all.
+                      Use: CPU, GPU, MAINBOARD, RAM, SSD, PSU, CASE, COOLER.
                 max_budget: Maximum price in VND.
                 purpose: Usage purpose (gaming, office, design, streaming).
             """
             import json
-            results = []
-            for slot in ("CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"):
+            if slot:
+                slot = slot.upper()
+                targeted_slots = [slot] if slot in ("CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER") else ["CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+            else:
+                targeted_slots = ["CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+            import json
+
+            actual_query = query
+            actual_slot = slot
+            if query.startswith('{') and '"slot"' in query:
                 try:
+                    parsed_args = json.loads(query)
+                    actual_query = parsed_args.get('query', '')
+                    actual_slot = parsed_args.get('slot', '')
+                except json.JSONDecodeError:
+                    pass
+
+            if actual_slot:
+                actual_slot = actual_slot.upper()
+                targeted_slots = [actual_slot] if actual_slot in ("CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER") else ["CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+            else:
+                targeted_slots = ["CPU", "GPU", "MAINBOARD", "RAM", "SSD", "PSU", "CASE", "COOLER"]
+
+            results = []
+            for s in targeted_slots:
+                try:
+                    query_filter_val = actual_query if s == actual_slot else None
                     docs = self.db_agent.mongo_service.get_alternative_products_for_slot(
-                        slot=slot, budget_max=float(max_budget), target_price=max_budget * 0.3, limit=5,
+                        slot=s, budget_max=float(max_budget), target_price=max_budget * 0.3, limit=5,
+                        query_filter=query_filter_val, sort_by_relevance=True,
                     )
                     for d in docs[:3]:
-                        results.append({"slot": slot, "name": OrchestratorAgent._sanitize_text(d.get("name", "")),
-                                        "price": OrchestratorAgent._to_number(d.get("price")) or 0})
+                        product_id = str(d.get("_id")) if d.get("_id") else ""
+                        results.append({"slot": s, "name": OrchestratorAgent._sanitize_text(d.get("name", "")),
+                                        "price": OrchestratorAgent._to_number(d.get("price")) or 0,
+                                        "productId": product_id})
                 except Exception:
                     pass
-            return json.dumps(results[:30], ensure_ascii=False)
+            result_state.append({"products": results})
+            if results:
+                lines = "\n".join([f"- {r['slot']}: {r['name']} ({r['price']:,} VND)" for r in results[:10]])
+                return f"Tìm thấy {len(results)} sản phẩm:\n{lines}"
+            return "Không tìm thấy sản phẩm phù hợp."
 
         @tool
         def build_pc(budget: float, purpose: str = "gaming", budget_min: float = 0.0) -> str:
@@ -435,7 +468,7 @@ class OrchestratorAgent:
             import json
             try:
                 current_build = json.loads(current_build_json) if current_build_json else []
-                ctx = {"budget": str(int(budget)), "purpose": purpose}
+                ctx = {"budget": f"{int(budget) // 1_000_000} trieu", "purpose": purpose}
                 if current_build:
                     ctx["selectedComponents"] = current_build
                 replacements = self._build_replacement_slot_products(slot=slot, context=ctx, compatibility={})
@@ -558,7 +591,8 @@ class OrchestratorAgent:
                 if react_result and (result_state or react_result.get("answer")):
                     tool_result = result_state[0] if result_state else {}
                     products_data = tool_result.get("products", tool_result.get("primary_build", []))
-                    cu_data = tool_result.get("context_update") or {}
+                    # Get context_update from tool_result OR from react_result (auto-extracted by adapter)
+                    cu_data = tool_result.get("context_update") or react_result.get("context_update") or {}
                     context_update = None
                     if cu_data:
                         context_update = ChatContext(
@@ -566,13 +600,24 @@ class OrchestratorAgent:
                             budgetExact=int(cu_data.get("budgetExact")) if cu_data.get("budgetExact") else None,
                         )
                     primary = [ProductSuggestion(**p) if isinstance(p, dict) else p for p in products_data]
-                    total = tool_result.get("total") or react_result.get("total") or self._sum_product_prices(primary)
+                    # Check if total was explicitly set (even to 0 for search queries)
+                    if "total" in tool_result:
+                        total = tool_result.get("total")
+                    elif "total" in react_result:
+                        total = react_result.get("total")
+                    else:
+                        total = self._sum_product_prices(primary)
+                    # For search queries (total=0), don't set primaryBuild
+                    is_search = "total" in tool_result and tool_result.get("total") == 0
                     budget_status_val = self._estimate_budget_status(total, budget_constants) if total else None
                     traces.append(AgentActionTrace(agent="orchestrator", action="smolagents_react",
                         status="success", observation=f"ReAct: {len(primary)} products, total={total}"))
                     return ChatResponse(answer=self._sanitize_answer_text(str(react_result.get("answer", ""))),
-                        confidence=0.8, products=primary, primaryBuild=primary, alternativesBySlot={},
-                        estimatedBuildTotal=total, budgetStatus=budget_status_val,
+                        confidence=0.8, products=primary,
+                        primaryBuild=[] if is_search else primary,
+                        alternativesBySlot={},
+                        estimatedBuildTotal=0 if is_search else total,
+                        budgetStatus=budget_status_val,
                         citations=[], contextUpdate=context_update,
                         trace=ChatTrace(iterations=1, actions=traces))
                 else:
@@ -4937,9 +4982,9 @@ class OrchestratorAgent:
         upper_name = name.upper()
         
         # 1. High-confidence name heuristics (Primary source of truth for messy DBs)
-        # We look for clear indicators of the product type in the name first.
+        # CRITICAL: Core components FIRST, accessories LAST.
+        # Use position-sensitive matching: keyword near the START of name = higher confidence.
         heuristics = {
-            "COOLER": ["TẢN NHIỆT", "COOLER", "QUẠT CASE", "QUẠT CPU", "QUẠT TẢN NHIỆT", "FAN CASE"],
             "CPU": ["CPU", "BỘ VI XỬ LÝ", "RYZEN", "CORE I3", "CORE I5", "CORE I7", "CORE I9", "7500F", "12400F"],
             "GPU": ["VGA", "CARD MÀN HÌNH", "RTX", "GTX", "RADEON", "GT 710", "GT 1030"],
             "MAINBOARD": ["MAINBOARD", "BO MẠCH CHỦ", "MOTHERBOARD", "B650", "A320", "B450", "Z790", "H610"],
@@ -4948,11 +4993,23 @@ class OrchestratorAgent:
             "HDD": ["HDD", "Ổ CỨNG HDD", "SKYHAWK", "IRONWOLF"],
             "PSU": ["PSU", "NGUỒN MÁY TÍNH"],
             "CASE": ["THÙNG MÁY", "CASE"],
+            "COOLER": ["TẢN NHIỆT", "COOLER", "QUẠT CASE", "QUẠT CPU", "QUẠT TẢN NHIỆT", "FAN CASE"],
         }
         
+        # Find ALL matching slots with their keyword positions (lower = earlier in name)
+        matches = []
         for slot, keywords in heuristics.items():
-            if any(k in upper_name for k in keywords):
-                return slot
+            for kw in keywords:
+                pos = upper_name.find(kw)
+                if pos >= 0:
+                    matches.append((pos, slot, kw))
+                    break  # First matching keyword for this slot
+        
+        if matches:
+            # Sort by position, then by heuristic order (core before accessory)
+            # Give bonus to starter keywords (position 0 = very likely correct)
+            matches.sort(key=lambda m: (m[0] + (100 if m[0] > 0 else 0)))
+            return matches[0][1]
 
         # 2. Category code (Secondary)
         if isinstance(category_code, str) and category_code.strip():

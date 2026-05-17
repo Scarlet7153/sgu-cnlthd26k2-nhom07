@@ -28,7 +28,6 @@ class LLMGateway:
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         if self.model.startswith("ollama/"):
-            import time
             last_error = None
             for attempt in range(3):
                 try:
@@ -61,9 +60,17 @@ class LLMGateway:
                         timeout=self.timeout_seconds,
                         max_tokens=self.max_tokens,
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                        stream=True,
                         **extra,
                     )
-                    return response.choices[0].message.content or ""
+                    # Collect streaming response
+                    content_parts = []
+                    for chunk in response:
+                        if chunk.choices and chunk.choices[0].delta:
+                            c = chunk.choices[0].delta.content
+                            if c:
+                                content_parts.append(c)
+                    return "".join(content_parts) if content_parts else ""
                 except Exception:
                     if attempt == 2:
                         raise

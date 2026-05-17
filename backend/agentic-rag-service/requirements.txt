@@ -2,7 +2,7 @@ fastapi==0.116.1
 uvicorn[standard]==0.35.0
 pydantic==2.11.7
 pydantic-settings==2.10.1
-litellm==1.74.8
+litellm>=1.78.0
 smolagents==1.14.0
 sentence-transformers==3.0.1
 pymongo==4.10.1

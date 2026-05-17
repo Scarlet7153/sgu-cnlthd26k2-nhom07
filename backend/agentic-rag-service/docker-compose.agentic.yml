@@ -2,6 +2,7 @@ services:
   agentic-rag-service:
     build: .
     container_name: agentic-rag-service
+    restart: always
     ports:
       - "8090:8090"
     env_file:
@@ -12,7 +13,7 @@ services:
       - ./app:/app/app
     networks:
       - backend-net
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090", "--reload"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090"]
 
 networks:
   backend-net:

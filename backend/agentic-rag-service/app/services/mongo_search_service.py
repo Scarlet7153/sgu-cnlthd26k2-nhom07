@@ -406,6 +406,8 @@ class MongoSearchService:
         selected_brand: Optional[str] = None,
         preferred_socket: Optional[str] = None,
         preferred_platform: Optional[str] = None,
+        query_filter: Optional[str] = None,
+        sort_by_relevance: bool = False,
     ) -> List[Dict[str, Any]]:
         if self._coll is None or not slot or budget_max <= 0:
             return []
@@ -428,17 +430,49 @@ class MongoSearchService:
         keywords = slot_keywords.get(slot_upper, [])
         name_regex = "|".join(re.escape(k) for k in keywords)
 
-        query: Dict[str, Any] = {
-            "price": {"$gt": 0, "$lte": budget_max},
-            "$or": []
-        }
-        if category_id:
-            query["$or"].append({"categoryId": ObjectId(category_id)})
-        if name_regex:
-            query["$or"].append({"name": {"$regex": name_regex, "$options": "i"}})
-            
-        if not query["$or"]:
-            del query["$or"]
+        if query_filter:
+            or_clause = []
+            if category_id:
+                or_clause.append({"categoryId": ObjectId(category_id)})
+            if name_regex:
+                or_clause.append({"name": {"$regex": name_regex, "$options": "i"}})
+
+            # Build name filter with query_filter
+            name_filter = {"name": {"$regex": re.escape(query_filter), "$options": "i"}}
+
+            # If query is simple "RTX 4060" (not "RTX 4060 Ti"), add negative lookahead to exclude Ti
+            q_lower = query_filter.lower().strip()
+            if "ti" not in q_lower and "Ti" not in query_filter:
+                # Add negative lookahead to exclude Ti variants
+                name_filter = {"name": {"$regex": f"{re.escape(query_filter)}(?!Ti)", "$options": "i"}}
+
+            query: Dict[str, Any] = {
+                "price": {"$gt": 0, "$lte": budget_max},
+                "$and": [
+                    name_filter,
+                    {"$or": or_clause} if or_clause else {"categoryId": {"$exists": True}},
+                ]
+            }
+        else:
+            query = {
+                "price": {"$gt": 0, "$lte": budget_max},
+                "$or": []
+            }
+            if category_id:
+                query["$or"].append({"categoryId": ObjectId(category_id)})
+            if name_regex:
+                query["$or"].append({"name": {"$regex": name_regex, "$options": "i"}})
+            if not query["$or"]:
+                del query["$or"]
+
+        # Exclude CPU products from GPU search (CPUs with iGPU have "Radeon Graphics" in name)
+        if slot_upper == "GPU":
+            cpu_cat = self._CATEGORY_BY_SLOT.get("CPU")
+            if cpu_cat:
+                if "$and" not in query:
+                    query = {"$and": [query, {"categoryId": {"$ne": ObjectId(cpu_cat)}}]}
+                else:
+                    query["$and"].append({"categoryId": {"$ne": ObjectId(cpu_cat)}})
 
         excluded: List[Any] = []
         for value in exclude_product_ids or []:
@@ -519,22 +553,53 @@ class MongoSearchService:
 
         coll = self._coll
 
-        docs = list(
-            coll.find(
+        # If query_filter is provided, use regex search and sort by relevance
+        # Preference: exact match (non-Ti) first, then by name length
+        if query_filter:
+            try:
+                docs = list(
+                    coll.find(
+                        scoped_query,
+                        {
+                            "_id": 1,
+                            "name": 1,
+                            "url": 1,
+                            "image": 1,
+                            "price": 1,
+                            "categoryId": 1,
+                            "categoryCode": 1,
+                            "socket": 1,
+                            "specs_raw": 1,
+                        },
+                    )
+                )
+                # Sort: non-Ti (exact match) first, then by name length
+                def sort_key(x):
+                    name = x.get("name", "")
+                    has_ti = "Ti" in name
+                    # Non-Ti first (False=0 before True=1), then by name length
+                    return (1 if has_ti else 0, len(name))
+                docs.sort(key=sort_key)
+                docs = docs[:max(limit * 8, 20)]
+            except Exception:
+                docs = []
+        else:
+            docs = list(
+                coll.find(
                     scoped_query,
-                {
-                    "_id": 1,
-                    "name": 1,
-                    "url": 1,
-                    "image": 1,
-                    "price": 1,
-                    "categoryId": 1,
-                    "categoryCode": 1,
-                    "socket": 1,
-                    "specs_raw": 1,
-                },
-            ).sort("price", -1).limit(max(limit * 8, 20))
-        )
+                    {
+                        "_id": 1,
+                        "name": 1,
+                        "url": 1,
+                        "image": 1,
+                        "price": 1,
+                        "categoryId": 1,
+                        "categoryCode": 1,
+                        "socket": 1,
+                        "specs_raw": 1,
+                    },
+                ).sort("price", -1).limit(max(limit * 8, 20))
+            )
 
         if not docs and target_price and target_price > 0:
             broad_query = {
@@ -597,7 +662,15 @@ class MongoSearchService:
                 ).limit(max(limit * 8, 20))
             )
 
-        if target_price and target_price > 0 and docs:
+        if sort_by_relevance and docs:
+            # Sort by relevance: non-Ti first, shorter name first, then price distance
+            def relevance_sort_key(d):
+                name = d.get("name", "")
+                has_ti = "Ti" in name
+                price_dist = abs(float(d.get("price", 0)) - (target_price or 0)) if target_price else float(d.get("price", 0))
+                return (1 if has_ti else 0, len(name), price_dist)
+            docs.sort(key=relevance_sort_key)
+        elif target_price and target_price > 0 and docs:
             docs.sort(key=lambda d: (abs(float(d.get("price", 0)) - target_price), float(d.get("price", 0))))
         else:
             docs.sort(key=lambda d: float(d.get("price", 0)))
